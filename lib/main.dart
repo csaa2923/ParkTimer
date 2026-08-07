@@ -46,6 +46,8 @@ class ParkTimerApp extends StatelessWidget {
   static const Color primaryBlue = Color(0xFF1E3A8A);
   static const Color accentGreen = Color(0xFF22C55E);
   static const Color backgroundGray = Color(0xFFF5F7FA);
+  static const Color warningOrange = Color(0xFFEA580C);
+  static const Color dangerRed = Color(0xFFDC2626);
 
   @override
   Widget build(BuildContext context) {
@@ -340,113 +342,150 @@ class StartScreenState extends State<StartScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final showHeroIcon = !_isRunning && !_isExpired;
+
     return Scaffold(
       body: SafeArea(
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            return SingleChildScrollView(
-              padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 24),
-              child: ConstrainedBox(
-                constraints: BoxConstraints(
-                  minHeight: constraints.maxHeight - 48,
-                ),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Column(
-                      children: [
-                        const SizedBox(height: 12),
-                        Text(
-                          '🚗 ParkTimer',
-                          style: Theme.of(context)
-                              .textTheme
-                              .headlineMedium
-                              ?.copyWith(
-                                color: ParkTimerApp.primaryBlue,
-                                fontWeight: FontWeight.w700,
-                                letterSpacing: -0.5,
-                              ),
-                        ),
-                        const SizedBox(height: 40),
-                        Container(
-                          width: 140,
-                          height: 140,
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            shape: BoxShape.circle,
-                            boxShadow: [
-                              BoxShadow(
-                                color: ParkTimerApp.primaryBlue
-                                    .withValues(alpha: 0.12),
-                                blurRadius: 28,
-                                offset: const Offset(0, 12),
-                              ),
-                            ],
-                          ),
-                          child: const Icon(
-                            Icons.local_parking_rounded,
-                            size: 72,
-                            color: ParkTimerApp.primaryBlue,
-                          ),
-                        ),
-                        const SizedBox(height: 28),
-                        _StatusSection(
-                          isRunning: _isRunning,
-                          isExpired: _isExpired,
-                          endTime: _endTime,
-                          remaining: _remaining,
-                        ),
-                        const SizedBox(height: 36),
-                        DurationButton(
-                          label: '30 Minuten',
-                          onPressed: () =>
-                              startTimer(const Duration(minutes: 30)),
-                        ),
-                        const SizedBox(height: 16),
-                        DurationButton(
-                          label: '1 Stunde',
-                          onPressed: () =>
-                              startTimer(const Duration(hours: 1)),
-                        ),
-                        const SizedBox(height: 16),
-                        DurationButton(
-                          label: '2 Stunden',
-                          onPressed: () =>
-                              startTimer(const Duration(hours: 2)),
-                        ),
-                        const SizedBox(height: 16),
-                        DurationButton(
-                          label: 'Eigene Zeit',
-                          isAccent: true,
-                          onPressed: openCustomTimePicker,
-                        ),
-                        if (_isRunning) ...[
-                          const SizedBox(height: 16),
-                          StopTimerButton(onPressed: stopTimer),
-                        ],
-                      ],
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(24, 20, 24, 20),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                '🚗 ParkTimer',
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                      color: ParkTimerApp.primaryBlue,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: -0.5,
                     ),
-                    Padding(
-                      padding: const EdgeInsets.only(top: 32, bottom: 8),
-                      child: Column(
-                        children: [
-                          LocationButton(
-                            isSaved: hasSavedPosition,
-                            isLoading: _isSavingLocation,
-                            onPressed: rememberLocation,
-                          ),
-                          if (hasSavedPosition) ...[
-                            const SizedBox(height: 12),
-                            NavigateToCarButton(onPressed: navigateToCar),
-                          ],
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
               ),
-            );
-          },
+              AnimatedSize(
+                duration: const Duration(milliseconds: 280),
+                curve: Curves.easeOutCubic,
+                child: showHeroIcon
+                    ? const Padding(
+                        padding: EdgeInsets.only(top: 28, bottom: 20),
+                        child: _ParkingHeroIcon(),
+                      )
+                    : const SizedBox(height: 16),
+              ),
+              _StatusSection(
+                isRunning: _isRunning,
+                isExpired: _isExpired,
+                endTime: _endTime,
+                remaining: _remaining,
+              ),
+              const SizedBox(height: 28),
+              DurationButton(
+                label: '30 Minuten',
+                onPressed: () => startTimer(const Duration(minutes: 30)),
+              ),
+              const SizedBox(height: 12),
+              DurationButton(
+                label: '1 Stunde',
+                onPressed: () => startTimer(const Duration(hours: 1)),
+              ),
+              const SizedBox(height: 12),
+              DurationButton(
+                label: '2 Stunden',
+                onPressed: () => startTimer(const Duration(hours: 2)),
+              ),
+              const SizedBox(height: 12),
+              DurationButton(
+                label: 'Eigene Zeit',
+                isAccent: true,
+                onPressed: openCustomTimePicker,
+              ),
+              AnimatedSwitcher(
+                duration: const Duration(milliseconds: 250),
+                switchInCurve: Curves.easeOutCubic,
+                switchOutCurve: Curves.easeInCubic,
+                child: _isRunning
+                    ? Padding(
+                        key: const ValueKey('stop-timer'),
+                        padding: const EdgeInsets.only(top: 12),
+                        child: StopTimerButton(onPressed: stopTimer),
+                      )
+                    : const SizedBox.shrink(key: ValueKey('no-stop-timer')),
+              ),
+              const SizedBox(height: 24),
+              AnimatedSwitcher(
+                duration: const Duration(milliseconds: 280),
+                child: hasSavedPosition
+                    ? Padding(
+                        key: const ValueKey('saved-location-card'),
+                        padding: const EdgeInsets.only(bottom: 12),
+                        child: SavedLocationInfoCard(
+                          savedAt: _savedLocation!.savedAt,
+                        ),
+                      )
+                    : const SizedBox.shrink(key: ValueKey('no-location-card')),
+              ),
+              LocationButton(
+                isSaved: hasSavedPosition,
+                isLoading: _isSavingLocation,
+                onPressed: rememberLocation,
+              ),
+              AnimatedSwitcher(
+                duration: const Duration(milliseconds: 250),
+                child: hasSavedPosition
+                    ? Padding(
+                        key: const ValueKey('navigate-button'),
+                        padding: const EdgeInsets.only(top: 12),
+                        child: NavigateToCarButton(onPressed: navigateToCar),
+                      )
+                    : const SizedBox.shrink(key: ValueKey('no-navigate')),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+Color parkingStatusColor({
+  required bool isExpired,
+  required bool isRunning,
+  required Duration remaining,
+}) {
+  if (isExpired) {
+    return ParkTimerApp.dangerRed;
+  }
+  if (!isRunning) {
+    return ParkTimerApp.primaryBlue;
+  }
+  if (remaining <= const Duration(minutes: 10)) {
+    return ParkTimerApp.warningOrange;
+  }
+  return ParkTimerApp.primaryBlue;
+}
+
+class _ParkingHeroIcon extends StatelessWidget {
+  const _ParkingHeroIcon();
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Container(
+        width: 120,
+        height: 120,
+        decoration: BoxDecoration(
+          color: Colors.white,
+          shape: BoxShape.circle,
+          boxShadow: [
+            BoxShadow(
+              color: ParkTimerApp.primaryBlue.withValues(alpha: 0.12),
+              blurRadius: 24,
+              offset: const Offset(0, 10),
+            ),
+          ],
+        ),
+        child: const Icon(
+          Icons.local_parking_rounded,
+          size: 64,
+          color: ParkTimerApp.primaryBlue,
         ),
       ),
     );
@@ -468,48 +507,159 @@ class _StatusSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final titleStyle = Theme.of(context).textTheme.titleLarge?.copyWith(
-          color: ParkTimerApp.primaryBlue,
-          fontWeight: FontWeight.w600,
-        );
+    final statusColor = parkingStatusColor(
+      isExpired: isExpired,
+      isRunning: isRunning,
+      remaining: remaining,
+    );
 
+    return AnimatedSwitcher(
+      duration: const Duration(milliseconds: 320),
+      switchInCurve: Curves.easeOutCubic,
+      switchOutCurve: Curves.easeInCubic,
+      transitionBuilder: (child, animation) {
+        return FadeTransition(
+          opacity: animation,
+          child: SlideTransition(
+            position: Tween<Offset>(
+              begin: const Offset(0, 0.06),
+              end: Offset.zero,
+            ).animate(animation),
+            child: child,
+          ),
+        );
+      },
+      child: _buildContent(context, statusColor),
+    );
+  }
+
+  Widget _buildContent(BuildContext context, Color statusColor) {
     if (isExpired) {
       return Text(
+        key: const ValueKey('status-expired'),
         'Parkzeit abgelaufen',
         textAlign: TextAlign.center,
-        style: titleStyle?.copyWith(
-          color: const Color(0xFFDC2626),
-          fontWeight: FontWeight.w700,
-        ),
+        style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+              color: statusColor,
+              fontWeight: FontWeight.w700,
+            ),
       );
     }
 
     if (isRunning && endTime != null) {
+      final baseSize =
+          Theme.of(context).textTheme.displaySmall?.fontSize ?? 36;
+      final countdownSize = baseSize * 1.2;
+
+      final urgencyKey =
+          remaining <= const Duration(minutes: 10) ? 'warn' : 'ok';
+
       return Column(
+        key: ValueKey('status-running-$urgencyKey'),
         children: [
           Text(
             'Parken bis ${formatClockTime(endTime!)}',
             textAlign: TextAlign.center,
-            style: titleStyle,
-          ),
-          const SizedBox(height: 12),
-          Text(
-            formatCountdown(remaining),
-            textAlign: TextAlign.center,
-            style: Theme.of(context).textTheme.displaySmall?.copyWith(
-                  color: ParkTimerApp.primaryBlue,
-                  fontWeight: FontWeight.w700,
-                  fontFeatures: const [FontFeature.tabularFigures()],
-                  letterSpacing: 1,
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  color: statusColor.withValues(alpha: 0.85),
+                  fontWeight: FontWeight.w500,
                 ),
+          ),
+          const SizedBox(height: 8),
+          AnimatedDefaultTextStyle(
+            duration: const Duration(milliseconds: 280),
+            curve: Curves.easeOutCubic,
+            style: TextStyle(
+              color: statusColor,
+              fontSize: countdownSize,
+              fontWeight: FontWeight.w700,
+              fontFeatures: const [FontFeature.tabularFigures()],
+              letterSpacing: 1.2,
+              height: 1.05,
+            ),
+            child: Text(
+              formatCountdown(remaining),
+              textAlign: TextAlign.center,
+            ),
           ),
         ],
       );
     }
 
     return Text(
+      key: const ValueKey('status-idle'),
       'Parkzeit starten',
-      style: titleStyle,
+      textAlign: TextAlign.center,
+      style: Theme.of(context).textTheme.titleLarge?.copyWith(
+            color: ParkTimerApp.primaryBlue,
+            fontWeight: FontWeight.w600,
+          ),
+    );
+  }
+}
+
+class SavedLocationInfoCard extends StatelessWidget {
+  const SavedLocationInfoCard({super.key, required this.savedAt});
+
+  final DateTime savedAt;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(
+          color: ParkTimerApp.accentGreen.withValues(alpha: 0.28),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: ParkTimerApp.accentGreen.withValues(alpha: 0.08),
+            blurRadius: 16,
+            offset: const Offset(0, 6),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 44,
+            height: 44,
+            decoration: BoxDecoration(
+              color: ParkTimerApp.accentGreen.withValues(alpha: 0.14),
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: const Icon(
+              Icons.location_on_rounded,
+              color: ParkTimerApp.accentGreen,
+            ),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '📍 Standort gespeichert',
+                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                        color: const Color(0xFF111827),
+                        fontWeight: FontWeight.w700,
+                      ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Gespeichert am ${formatClockTime(savedAt)}',
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: const Color(0xFF6B7280),
+                      ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -766,26 +916,28 @@ class DurationButton extends StatelessWidget {
     final backgroundColor =
         isAccent ? ParkTimerApp.accentGreen : ParkTimerApp.primaryBlue;
 
-    return SizedBox(
-      width: double.infinity,
-      height: 60,
-      child: ElevatedButton(
-        onPressed: onPressed ?? () {},
-        style: ElevatedButton.styleFrom(
-          backgroundColor: backgroundColor,
-          foregroundColor: Colors.white,
-          elevation: 4,
-          shadowColor: backgroundColor.withValues(alpha: 0.4),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(18),
+    return _AnimatedPressScale(
+      child: SizedBox(
+        width: double.infinity,
+        height: 56,
+        child: ElevatedButton(
+          onPressed: onPressed ?? () {},
+          style: ElevatedButton.styleFrom(
+            backgroundColor: backgroundColor,
+            foregroundColor: Colors.white,
+            elevation: 2,
+            shadowColor: backgroundColor.withValues(alpha: 0.28),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(18),
+            ),
+            textStyle: const TextStyle(
+              fontSize: 17,
+              fontWeight: FontWeight.w600,
+              letterSpacing: 0.2,
+            ),
           ),
-          textStyle: const TextStyle(
-            fontSize: 18,
-            fontWeight: FontWeight.w600,
-            letterSpacing: 0.2,
-          ),
+          child: Text(label),
         ),
-        child: Text(label),
       ),
     );
   }
@@ -798,25 +950,29 @@ class StopTimerButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
-      width: double.infinity,
-      height: 56,
-      child: ElevatedButton(
-        onPressed: onPressed,
-        style: ElevatedButton.styleFrom(
-          backgroundColor: const Color(0xFFDC2626),
-          foregroundColor: Colors.white,
-          elevation: 3,
-          shadowColor: const Color(0xFFDC2626).withValues(alpha: 0.35),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(18),
+    return _AnimatedPressScale(
+      child: SizedBox(
+        width: double.infinity,
+        height: 52,
+        child: OutlinedButton(
+          onPressed: onPressed,
+          style: OutlinedButton.styleFrom(
+            foregroundColor: ParkTimerApp.dangerRed,
+            side: BorderSide(
+              color: ParkTimerApp.dangerRed.withValues(alpha: 0.55),
+              width: 1.4,
+            ),
+            backgroundColor: ParkTimerApp.dangerRed.withValues(alpha: 0.06),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(18),
+            ),
+            textStyle: const TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w600,
+            ),
           ),
-          textStyle: const TextStyle(
-            fontSize: 17,
-            fontWeight: FontWeight.w600,
-          ),
+          child: const Text('Timer stoppen'),
         ),
-        child: const Text('Timer stoppen'),
       ),
     );
   }
@@ -829,24 +985,26 @@ class NavigateToCarButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
-      width: double.infinity,
-      height: 56,
-      child: ElevatedButton.icon(
-        onPressed: onPressed,
-        icon: const Icon(Icons.directions_rounded, size: 22),
-        label: const Text('Zum Auto navigieren'),
-        style: ElevatedButton.styleFrom(
-          backgroundColor: ParkTimerApp.primaryBlue,
-          foregroundColor: Colors.white,
-          elevation: 3,
-          shadowColor: ParkTimerApp.primaryBlue.withValues(alpha: 0.35),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(18),
-          ),
-          textStyle: const TextStyle(
-            fontSize: 16,
-            fontWeight: FontWeight.w600,
+    return _AnimatedPressScale(
+      child: SizedBox(
+        width: double.infinity,
+        height: 56,
+        child: ElevatedButton.icon(
+          onPressed: onPressed,
+          icon: const Icon(Icons.navigation_rounded, size: 22),
+          label: const Text('Zum Auto navigieren'),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: ParkTimerApp.primaryBlue,
+            foregroundColor: Colors.white,
+            elevation: 2,
+            shadowColor: ParkTimerApp.primaryBlue.withValues(alpha: 0.28),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(18),
+            ),
+            textStyle: const TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w600,
+            ),
           ),
         ),
       ),
@@ -870,38 +1028,69 @@ class LocationButton extends StatelessWidget {
   Widget build(BuildContext context) {
     final backgroundColor =
         isSaved ? ParkTimerApp.accentGreen : const Color(0xFFE5E7EB);
-    final foregroundColor =
-        isSaved ? Colors.white : const Color(0xFF4B5563);
+    final foregroundColor = isSaved ? Colors.white : const Color(0xFF4B5563);
 
-    return SizedBox(
-      width: double.infinity,
-      height: 56,
-      child: ElevatedButton.icon(
-        onPressed: isLoading ? null : onPressed,
-        icon: Icon(
-          isSaved ? Icons.location_on : Icons.location_on_outlined,
-          size: 22,
-        ),
-        label: Text(
-          isSaved ? 'Standort gespeichert ✓' : 'Standort merken',
-        ),
-        style: ElevatedButton.styleFrom(
-          backgroundColor: backgroundColor,
-          disabledBackgroundColor: backgroundColor.withValues(alpha: 0.7),
-          foregroundColor: foregroundColor,
-          disabledForegroundColor: foregroundColor.withValues(alpha: 0.8),
-          elevation: 2,
-          shadowColor: isSaved
-              ? ParkTimerApp.accentGreen.withValues(alpha: 0.35)
-              : Colors.black26,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(18),
+    return _AnimatedPressScale(
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 250),
+        curve: Curves.easeOutCubic,
+        width: double.infinity,
+        height: 56,
+        child: ElevatedButton.icon(
+          onPressed: isLoading ? null : onPressed,
+          icon: Icon(
+            isSaved ? Icons.check_circle_rounded : Icons.location_on_outlined,
+            size: 22,
           ),
-          textStyle: const TextStyle(
-            fontSize: 16,
-            fontWeight: FontWeight.w600,
+          label: Text(
+            isSaved ? 'Standort gespeichert ✓' : 'Standort merken',
+          ),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: backgroundColor,
+            disabledBackgroundColor: backgroundColor.withValues(alpha: 0.7),
+            foregroundColor: foregroundColor,
+            disabledForegroundColor: foregroundColor.withValues(alpha: 0.8),
+            elevation: isSaved ? 2 : 1,
+            shadowColor: isSaved
+                ? ParkTimerApp.accentGreen.withValues(alpha: 0.3)
+                : Colors.black12,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(18),
+            ),
+            textStyle: const TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w600,
+            ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _AnimatedPressScale extends StatefulWidget {
+  const _AnimatedPressScale({required this.child});
+
+  final Widget child;
+
+  @override
+  State<_AnimatedPressScale> createState() => _AnimatedPressScaleState();
+}
+
+class _AnimatedPressScaleState extends State<_AnimatedPressScale> {
+  bool _pressed = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return Listener(
+      onPointerDown: (_) => setState(() => _pressed = true),
+      onPointerUp: (_) => setState(() => _pressed = false),
+      onPointerCancel: (_) => setState(() => _pressed = false),
+      child: AnimatedScale(
+        scale: _pressed ? 0.98 : 1,
+        duration: const Duration(milliseconds: 120),
+        curve: Curves.easeOutCubic,
+        child: widget.child,
       ),
     );
   }

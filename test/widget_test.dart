@@ -180,7 +180,7 @@ void main() {
     await _pumpApp(tester, now: clock.call);
 
     await tester.tap(find.text('30 Minuten'));
-    await tester.pump();
+    await tester.pumpAndSettle();
 
     expect(find.text('Parkzeit starten'), findsNothing);
     expect(find.text('Parken bis 10:30'), findsOneWidget);
@@ -234,7 +234,7 @@ void main() {
     await tester.ensureVisible(find.text('Timer stoppen'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Timer stoppen'));
-    await tester.pump();
+    await tester.pumpAndSettle();
 
     expect(find.text('Parkzeit starten'), findsOneWidget);
     expect(find.text('Timer stoppen'), findsNothing);
@@ -248,13 +248,14 @@ void main() {
 
     final state = tester.state<StartScreenState>(find.byType(StartScreen));
     state.startTimer(const Duration(seconds: 2));
-    await tester.pump();
+    await tester.pumpAndSettle();
 
     expect(find.text('Parken bis 10:00'), findsOneWidget);
     expect(find.text('00:00:02'), findsOneWidget);
 
     clock.advance(const Duration(seconds: 2));
     await tester.pump(const Duration(seconds: 2));
+    await tester.pumpAndSettle();
 
     expect(find.text('Parkzeit abgelaufen'), findsOneWidget);
     expect(find.text('Timer stoppen'), findsNothing);
