@@ -2,7 +2,10 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import 'package:parktimer/services/location_service.dart';
+import 'package:parktimer/services/navigation_service.dart';
 import 'package:parktimer/services/notification_service.dart';
+import 'package:parktimer/services/parking_location_store.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -14,10 +17,22 @@ class ParkTimerApp extends StatelessWidget {
   const ParkTimerApp({
     super.key,
     this.now = DateTime.now,
+    this.locationService,
+    this.parkingLocationStore,
+    this.navigationService,
   });
 
   /// Injectable clock for tests; defaults to wall clock time.
   final DateTime Function() now;
+
+  /// Injectable location service for tests; defaults to the shared instance.
+  final LocationService? locationService;
+
+  /// Injectable parking location store for tests; defaults to the shared instance.
+  final ParkingLocationStore? parkingLocationStore;
+
+  /// Injectable navigation service for tests; defaults to the shared instance.
+  final NavigationService? navigationService;
 
   static const Color primaryBlue = Color(0xFF1E3A8A);
   static const Color accentGreen = Color(0xFF22C55E);
@@ -39,7 +54,13 @@ class ParkTimerApp extends StatelessWidget {
         ),
         scaffoldBackgroundColor: backgroundGray,
       ),
-      home: StartScreen(now: now),
+      home: StartScreen(
+        now: now,
+        locationService: locationService ?? LocationService.instance,
+        parkingLocationStore:
+            parkingLocationStore ?? ParkingLocationStore.instance,
+        navigationService: navigationService ?? NavigationService.instance,
+      ),
     );
   }
 }
@@ -48,9 +69,15 @@ class StartScreen extends StatefulWidget {
   const StartScreen({
     super.key,
     this.now = DateTime.now,
+    required this.locationService,
+    required this.parkingLocationStore,
+    required this.navigationService,
   });
 
   final DateTime Function() now;
+  final LocationService locationService;
+  final ParkingLocationStore parkingLocationStore;
+  final NavigationService navigationService;
 
   @override
   State<StartScreen> createState() => StartScreenState();
@@ -62,11 +89,32 @@ class StartScreenState extends State<StartScreen> {
   Duration _remaining = Duration.zero;
   bool _isRunning = false;
   bool _isExpired = false;
+  SavedParkingLocation? _savedLocation;
+  bool _isSavingLocation = false;
 
   bool get isRunning => _isRunning;
   bool get isExpired => _isExpired;
   Duration get remaining => _remaining;
   DateTime? get endTime => _endTime;
+  SavedParkingLocation? get savedPosition => _savedLocation;
+  bool get hasSavedPosition => _savedLocation != null;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadSavedLocation();
+  }
+
+  Future<void> _loadSavedLocation() async {
+    final saved = await widget.parkingLocationStore.load();
+    if (!mounted || saved == null) {
+      return;
+    }
+
+    setState(() {
+      _savedLocation = saved;
+    });
+  }
 
   void startTimer(Duration duration) {
     _ticker?.cancel();
@@ -105,6 +153,83 @@ class StartScreenState extends State<StartScreen> {
   Future<void> _onTestNotificationPressed() async {
     await NotificationService.instance.requestPermissions();
     await NotificationService.instance.showTestNotification();
+  }
+
+  Future<void> rememberLocation() async {
+    if (_isSavingLocation) {
+      return;
+    }
+
+    setState(() {
+      _isSavingLocation = true;
+    });
+
+    try {
+      final position = await widget.locationService.obtainCurrentPosition();
+      final savedLocation = SavedParkingLocation(
+        latitude: position.latitude,
+        longitude: position.longitude,
+        savedAt: widget.now(),
+      );
+      await widget.parkingLocationStore.save(savedLocation);
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _savedLocation = savedLocation;
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Standort gespeichert')),
+      );
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Standort konnte nicht gespeichert werden')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isSavingLocation = false;
+        });
+      }
+    }
+  }
+
+  /// Clears the persisted parking location. No UI entry point yet.
+  Future<void> clearSavedLocation() async {
+    await widget.parkingLocationStore.clear();
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _savedLocation = null;
+    });
+  }
+
+  Future<void> navigateToCar() async {
+    final location = _savedLocation;
+    if (location == null) {
+      return;
+    }
+
+    final opened = await widget.navigationService.openNavigation(location);
+    if (!mounted) {
+      return;
+    }
+
+    if (!opened) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Karten-App konnte nicht geöffnet werden'),
+        ),
+      );
+    }
   }
 
   void _onTick() {
@@ -241,7 +366,15 @@ class StartScreenState extends State<StartScreen> {
                             child: const Text('Test-Benachrichtigung'),
                           ),
                           const SizedBox(height: 4),
-                          const LocationButton(),
+                          LocationButton(
+                            isSaved: hasSavedPosition,
+                            isLoading: _isSavingLocation,
+                            onPressed: rememberLocation,
+                          ),
+                          if (hasSavedPosition) ...[
+                            const SizedBox(height: 12),
+                            NavigateToCarButton(onPressed: navigateToCar),
+                          ],
                         ],
                       ),
                     ),
@@ -625,8 +758,10 @@ class StopTimerButton extends StatelessWidget {
   }
 }
 
-class LocationButton extends StatelessWidget {
-  const LocationButton({super.key});
+class NavigateToCarButton extends StatelessWidget {
+  const NavigateToCarButton({super.key, required this.onPressed});
+
+  final VoidCallback onPressed;
 
   @override
   Widget build(BuildContext context) {
@@ -634,14 +769,67 @@ class LocationButton extends StatelessWidget {
       width: double.infinity,
       height: 56,
       child: ElevatedButton.icon(
-        onPressed: () {},
-        icon: const Icon(Icons.location_on_outlined, size: 22),
-        label: const Text('Standort merken'),
+        onPressed: onPressed,
+        icon: const Icon(Icons.directions_rounded, size: 22),
+        label: const Text('Zum Auto navigieren'),
         style: ElevatedButton.styleFrom(
-          backgroundColor: const Color(0xFFE5E7EB),
-          foregroundColor: const Color(0xFF4B5563),
+          backgroundColor: ParkTimerApp.primaryBlue,
+          foregroundColor: Colors.white,
+          elevation: 3,
+          shadowColor: ParkTimerApp.primaryBlue.withValues(alpha: 0.35),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(18),
+          ),
+          textStyle: const TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class LocationButton extends StatelessWidget {
+  const LocationButton({
+    super.key,
+    required this.onPressed,
+    this.isSaved = false,
+    this.isLoading = false,
+  });
+
+  final VoidCallback onPressed;
+  final bool isSaved;
+  final bool isLoading;
+
+  @override
+  Widget build(BuildContext context) {
+    final backgroundColor =
+        isSaved ? ParkTimerApp.accentGreen : const Color(0xFFE5E7EB);
+    final foregroundColor =
+        isSaved ? Colors.white : const Color(0xFF4B5563);
+
+    return SizedBox(
+      width: double.infinity,
+      height: 56,
+      child: ElevatedButton.icon(
+        onPressed: isLoading ? null : onPressed,
+        icon: Icon(
+          isSaved ? Icons.location_on : Icons.location_on_outlined,
+          size: 22,
+        ),
+        label: Text(
+          isSaved ? 'Standort gespeichert ✓' : 'Standort merken',
+        ),
+        style: ElevatedButton.styleFrom(
+          backgroundColor: backgroundColor,
+          disabledBackgroundColor: backgroundColor.withValues(alpha: 0.7),
+          foregroundColor: foregroundColor,
+          disabledForegroundColor: foregroundColor.withValues(alpha: 0.8),
           elevation: 2,
-          shadowColor: Colors.black26,
+          shadowColor: isSaved
+              ? ParkTimerApp.accentGreen.withValues(alpha: 0.35)
+              : Colors.black26,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(18),
           ),

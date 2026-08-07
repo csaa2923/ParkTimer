@@ -1,7 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:geolocator/geolocator.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import 'package:parktimer/main.dart';
+import 'package:parktimer/services/location_service.dart';
+import 'package:parktimer/services/navigation_service.dart';
+import 'package:parktimer/services/parking_location_store.dart';
 
 class _FakeClock {
   _FakeClock(this._now);
@@ -15,9 +21,76 @@ class _FakeClock {
   }
 }
 
+class _FakeLocationService extends LocationService {
+  _FakeLocationService({this.shouldSucceed = true});
+
+  final bool shouldSucceed;
+  int obtainCallCount = 0;
+
+  @override
+  Future<Position> obtainCurrentPosition({
+    LocationSettings? locationSettings,
+  }) async {
+    obtainCallCount += 1;
+    if (!shouldSucceed) {
+      throw const PermissionDeniedException('denied');
+    }
+
+    return Position(
+      latitude: 52.52,
+      longitude: 13.405,
+      timestamp: DateTime(2026, 8, 7, 10),
+      accuracy: 5,
+      altitude: 0,
+      altitudeAccuracy: 0,
+      heading: 0,
+      headingAccuracy: 0,
+      speed: 0,
+      speedAccuracy: 0,
+    );
+  }
+}
+
+class _FakeNavigationService extends NavigationService {
+  _FakeNavigationService({this.shouldOpen = true})
+      : super(
+          launchUrlFn: (
+            Uri url, {
+            LaunchMode mode = LaunchMode.platformDefault,
+          }) async =>
+              false,
+        );
+
+  final bool shouldOpen;
+  final List<SavedParkingLocation> openedLocations = <SavedParkingLocation>[];
+
+  @override
+  Future<bool> openNavigation(SavedParkingLocation location) async {
+    openedLocations.add(location);
+    return shouldOpen;
+  }
+}
+
+Future<ParkingLocationStore> _testStore([
+  Map<String, Object> values = const <String, Object>{},
+]) async {
+  SharedPreferences.setMockInitialValues(Map<String, Object>.from(values));
+  final preferences = await SharedPreferences.getInstance();
+  return ParkingLocationStore(preferences: preferences);
+}
+
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
+  setUp(() {
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+  });
+
   testWidgets('Start screen shows ParkTimer UI', (WidgetTester tester) async {
-    await tester.pumpWidget(const ParkTimerApp());
+    await tester.pumpWidget(ParkTimerApp(
+      parkingLocationStore: await _testStore(),
+    ));
+    await tester.pumpAndSettle();
 
     expect(find.textContaining('ParkTimer'), findsOneWidget);
     expect(find.text('Parkzeit starten'), findsOneWidget);
@@ -26,13 +99,18 @@ void main() {
     expect(find.text('2 Stunden'), findsOneWidget);
     expect(find.text('Eigene Zeit'), findsOneWidget);
     expect(find.text('Standort merken'), findsOneWidget);
+    expect(find.text('Zum Auto navigieren'), findsNothing);
     expect(find.text('Timer stoppen'), findsNothing);
   });
 
   testWidgets('Starting a timer shows end time and countdown',
       (WidgetTester tester) async {
     final clock = _FakeClock(DateTime(2026, 8, 7, 10, 0));
-    await tester.pumpWidget(ParkTimerApp(now: clock.call));
+    await tester.pumpWidget(ParkTimerApp(
+      now: clock.call,
+      parkingLocationStore: await _testStore(),
+    ));
+    await tester.pumpAndSettle();
 
     await tester.tap(find.text('30 Minuten'));
     await tester.pump();
@@ -50,7 +128,11 @@ void main() {
 
   testWidgets('Countdown updates every second', (WidgetTester tester) async {
     final clock = _FakeClock(DateTime(2026, 8, 7, 10, 0));
-    await tester.pumpWidget(ParkTimerApp(now: clock.call));
+    await tester.pumpWidget(ParkTimerApp(
+      now: clock.call,
+      parkingLocationStore: await _testStore(),
+    ));
+    await tester.pumpAndSettle();
 
     await tester.tap(find.text('1 Stunde'));
     await tester.pump();
@@ -65,7 +147,11 @@ void main() {
   testWidgets('Starting a new timer replaces the current one',
       (WidgetTester tester) async {
     final clock = _FakeClock(DateTime(2026, 8, 7, 10, 0));
-    await tester.pumpWidget(ParkTimerApp(now: clock.call));
+    await tester.pumpWidget(ParkTimerApp(
+      now: clock.call,
+      parkingLocationStore: await _testStore(),
+    ));
+    await tester.pumpAndSettle();
 
     await tester.tap(find.text('30 Minuten'));
     await tester.pump();
@@ -80,7 +166,11 @@ void main() {
 
   testWidgets('Stop button resets the timer UI', (WidgetTester tester) async {
     final clock = _FakeClock(DateTime(2026, 8, 7, 10, 0));
-    await tester.pumpWidget(ParkTimerApp(now: clock.call));
+    await tester.pumpWidget(ParkTimerApp(
+      now: clock.call,
+      parkingLocationStore: await _testStore(),
+    ));
+    await tester.pumpAndSettle();
 
     await tester.tap(find.text('30 Minuten'));
     await tester.pump();
@@ -99,7 +189,11 @@ void main() {
   testWidgets('Expired timer shows Parkzeit abgelaufen',
       (WidgetTester tester) async {
     final clock = _FakeClock(DateTime(2026, 8, 7, 10, 0));
-    await tester.pumpWidget(ParkTimerApp(now: clock.call));
+    await tester.pumpWidget(ParkTimerApp(
+      now: clock.call,
+      parkingLocationStore: await _testStore(),
+    ));
+    await tester.pumpAndSettle();
 
     final state = tester.state<StartScreenState>(find.byType(StartScreen));
     state.startTimer(const Duration(seconds: 2));
@@ -126,7 +220,10 @@ void main() {
   });
 
   testWidgets('Eigene Zeit opens custom time sheet', (WidgetTester tester) async {
-    await tester.pumpWidget(const ParkTimerApp());
+    await tester.pumpWidget(ParkTimerApp(
+      parkingLocationStore: await _testStore(),
+    ));
+    await tester.pumpAndSettle();
 
     await tester.ensureVisible(find.text('Eigene Zeit'));
     await tester.pumpAndSettle();
@@ -143,7 +240,11 @@ void main() {
   testWidgets('Custom time starts countdown with selected duration',
       (WidgetTester tester) async {
     final clock = _FakeClock(DateTime(2026, 8, 7, 10, 0));
-    await tester.pumpWidget(ParkTimerApp(now: clock.call));
+    await tester.pumpWidget(ParkTimerApp(
+      now: clock.call,
+      parkingLocationStore: await _testStore(),
+    ));
+    await tester.pumpAndSettle();
 
     await tester.ensureVisible(find.text('Eigene Zeit'));
     await tester.pumpAndSettle();
@@ -180,7 +281,11 @@ void main() {
   testWidgets('Custom time cancel keeps running timer unchanged',
       (WidgetTester tester) async {
     final clock = _FakeClock(DateTime(2026, 8, 7, 10, 0));
-    await tester.pumpWidget(ParkTimerApp(now: clock.call));
+    await tester.pumpWidget(ParkTimerApp(
+      now: clock.call,
+      parkingLocationStore: await _testStore(),
+    ));
+    await tester.pumpAndSettle();
 
     await tester.tap(find.text('30 Minuten'));
     await tester.pump();
@@ -204,7 +309,10 @@ void main() {
 
   testWidgets('Custom time requires at least one minute',
       (WidgetTester tester) async {
-    await tester.pumpWidget(const ParkTimerApp());
+    await tester.pumpWidget(ParkTimerApp(
+      parkingLocationStore: await _testStore(),
+    ));
+    await tester.pumpAndSettle();
 
     await tester.ensureVisible(find.text('Eigene Zeit'));
     await tester.pumpAndSettle();
@@ -231,7 +339,11 @@ void main() {
   testWidgets('Custom time replaces an already running timer',
       (WidgetTester tester) async {
     final clock = _FakeClock(DateTime(2026, 8, 7, 10, 0));
-    await tester.pumpWidget(ParkTimerApp(now: clock.call));
+    await tester.pumpWidget(ParkTimerApp(
+      now: clock.call,
+      parkingLocationStore: await _testStore(),
+    ));
+    await tester.pumpAndSettle();
 
     await tester.tap(find.text('30 Minuten'));
     await tester.pump();
@@ -250,5 +362,298 @@ void main() {
 
     expect(find.text('Parken bis 11:01'), findsOneWidget);
     expect(find.text('01:01:00'), findsOneWidget);
+  });
+
+  testWidgets('Standort merken persists position and updates button',
+      (WidgetTester tester) async {
+    final clock = _FakeClock(DateTime(2026, 8, 7, 10, 0));
+    final locationService = _FakeLocationService();
+    final store = await _testStore();
+
+    await tester.pumpWidget(ParkTimerApp(
+      now: clock.call,
+      locationService: locationService,
+      parkingLocationStore: store,
+    ));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Standort merken'), findsOneWidget);
+
+    await tester.ensureVisible(find.text('Standort merken'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Standort merken'));
+    await tester.pumpAndSettle();
+
+    expect(locationService.obtainCallCount, 1);
+    expect(find.text('Standort gespeichert'), findsOneWidget);
+    expect(find.text('Standort gespeichert ✓'), findsOneWidget);
+    expect(find.text('Zum Auto navigieren'), findsOneWidget);
+    expect(find.text('Standort merken'), findsNothing);
+
+    final state = tester.state<StartScreenState>(find.byType(StartScreen));
+    expect(state.hasSavedPosition, isTrue);
+    expect(state.savedPosition?.latitude, 52.52);
+    expect(state.savedPosition?.longitude, 13.405);
+    expect(state.savedPosition?.savedAt, DateTime(2026, 8, 7, 10));
+
+    final persisted = await store.load();
+    expect(persisted?.latitude, 52.52);
+    expect(persisted?.longitude, 13.405);
+    expect(persisted?.savedAt, DateTime(2026, 8, 7, 10));
+  });
+
+  testWidgets('Standort merken failure keeps original button label',
+      (WidgetTester tester) async {
+    final locationService = _FakeLocationService(shouldSucceed: false);
+    await tester.pumpWidget(ParkTimerApp(
+      locationService: locationService,
+      parkingLocationStore: await _testStore(),
+    ));
+    await tester.pumpAndSettle();
+
+    await tester.ensureVisible(find.text('Standort merken'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Standort merken'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Standort merken'), findsOneWidget);
+    expect(find.text('Standort gespeichert ✓'), findsNothing);
+    expect(
+      find.text('Standort konnte nicht gespeichert werden'),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('Persisted parking location is restored on app start',
+      (WidgetTester tester) async {
+    final store = await _testStore(<String, Object>{
+      'parking_latitude': 52.52,
+      'parking_longitude': 13.405,
+      'parking_saved_at': '2026-08-07T10:00:00.000',
+    });
+
+    await tester.pumpWidget(ParkTimerApp(
+      locationService: _FakeLocationService(),
+      parkingLocationStore: store,
+    ));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Standort gespeichert ✓'), findsOneWidget);
+    expect(find.text('Zum Auto navigieren'), findsOneWidget);
+    expect(find.text('Standort merken'), findsNothing);
+
+    final state = tester.state<StartScreenState>(find.byType(StartScreen));
+    expect(state.hasSavedPosition, isTrue);
+    expect(state.savedPosition?.latitude, 52.52);
+    expect(state.savedPosition?.longitude, 13.405);
+  });
+
+  testWidgets('clearSavedLocation removes persisted parking position',
+      (WidgetTester tester) async {
+    final store = await _testStore(<String, Object>{
+      'parking_latitude': 52.52,
+      'parking_longitude': 13.405,
+      'parking_saved_at': '2026-08-07T10:00:00.000',
+    });
+
+    await tester.pumpWidget(ParkTimerApp(
+      locationService: _FakeLocationService(),
+      parkingLocationStore: store,
+    ));
+    await tester.pumpAndSettle();
+    expect(find.text('Standort gespeichert ✓'), findsOneWidget);
+    expect(find.text('Zum Auto navigieren'), findsOneWidget);
+
+    final state = tester.state<StartScreenState>(find.byType(StartScreen));
+    await state.clearSavedLocation();
+    await tester.pumpAndSettle();
+
+    expect(find.text('Standort merken'), findsOneWidget);
+    expect(find.text('Standort gespeichert ✓'), findsNothing);
+    expect(find.text('Zum Auto navigieren'), findsNothing);
+    expect(await store.load(), isNull);
+  });
+
+  testWidgets('Zum Auto navigieren opens saved coordinates',
+      (WidgetTester tester) async {
+    final navigationService = _FakeNavigationService();
+    final store = await _testStore(<String, Object>{
+      'parking_latitude': 52.52,
+      'parking_longitude': 13.405,
+      'parking_saved_at': '2026-08-07T10:00:00.000',
+    });
+
+    await tester.pumpWidget(ParkTimerApp(
+      locationService: _FakeLocationService(),
+      parkingLocationStore: store,
+      navigationService: navigationService,
+    ));
+    await tester.pumpAndSettle();
+
+    await tester.ensureVisible(find.text('Zum Auto navigieren'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Zum Auto navigieren'));
+    await tester.pumpAndSettle();
+
+    expect(navigationService.openedLocations, hasLength(1));
+    expect(navigationService.openedLocations.single.latitude, 52.52);
+    expect(navigationService.openedLocations.single.longitude, 13.405);
+    expect(find.text('Karten-App konnte nicht geöffnet werden'), findsNothing);
+  });
+
+  testWidgets('Zum Auto navigieren shows snackbar when opening fails',
+      (WidgetTester tester) async {
+    final navigationService = _FakeNavigationService(shouldOpen: false);
+    final store = await _testStore(<String, Object>{
+      'parking_latitude': 52.52,
+      'parking_longitude': 13.405,
+      'parking_saved_at': '2026-08-07T10:00:00.000',
+    });
+
+    await tester.pumpWidget(ParkTimerApp(
+      locationService: _FakeLocationService(),
+      parkingLocationStore: store,
+      navigationService: navigationService,
+    ));
+    await tester.pumpAndSettle();
+
+    await tester.ensureVisible(find.text('Zum Auto navigieren'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Zum Auto navigieren'));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text('Karten-App konnte nicht geöffnet werden'),
+      findsOneWidget,
+    );
+  });
+
+  test('ParkingLocationStore save load and clear', () async {
+    final store = await _testStore();
+    final location = SavedParkingLocation(
+      latitude: 48.137,
+      longitude: 11.575,
+      savedAt: DateTime(2026, 8, 7, 12, 30),
+    );
+
+    await store.save(location);
+    final loaded = await store.load();
+    expect(loaded?.latitude, 48.137);
+    expect(loaded?.longitude, 11.575);
+    expect(loaded?.savedAt, DateTime(2026, 8, 7, 12, 30));
+
+    await store.clear();
+    expect(await store.load(), isNull);
+  });
+
+  test('NavigationService builds Android map fallbacks', () {
+    final service = NavigationService(
+      platform: TargetPlatform.android,
+      isWeb: false,
+      launchUrlFn: (
+        Uri url, {
+        LaunchMode mode = LaunchMode.platformDefault,
+      }) async =>
+          false,
+    );
+
+    final uris = service.buildNavigationUris(
+      latitude: 52.52,
+      longitude: 13.405,
+    );
+
+    expect(uris.map((uri) => uri.toString()).toList(), <String>[
+      'google.navigation:q=52.52,13.405',
+      'geo:52.52,13.405?q=52.52,13.405',
+      'https://www.google.com/maps/search/?api=1&query=52.52,13.405',
+    ]);
+  });
+
+  test('NavigationService builds iOS map fallbacks', () {
+    final service = NavigationService(
+      platform: TargetPlatform.iOS,
+      isWeb: false,
+      launchUrlFn: (
+        Uri url, {
+        LaunchMode mode = LaunchMode.platformDefault,
+      }) async =>
+          false,
+    );
+
+    final uris = service.buildNavigationUris(
+      latitude: 52.52,
+      longitude: 13.405,
+    );
+
+    expect(uris.map((uri) => uri.toString()).toList(), <String>[
+      'maps://?daddr=52.52,13.405',
+      'https://maps.apple.com/?daddr=52.52,13.405',
+    ]);
+  });
+
+  test('NavigationService builds browser fallback for web/windows', () {
+    final webService = NavigationService(
+      platform: TargetPlatform.android,
+      isWeb: true,
+      launchUrlFn: (
+        Uri url, {
+        LaunchMode mode = LaunchMode.platformDefault,
+      }) async =>
+          false,
+    );
+    final windowsService = NavigationService(
+      platform: TargetPlatform.windows,
+      isWeb: false,
+      launchUrlFn: (
+        Uri url, {
+        LaunchMode mode = LaunchMode.platformDefault,
+      }) async =>
+          false,
+    );
+
+    expect(
+      webService
+          .buildNavigationUris(latitude: 1, longitude: 2)
+          .single
+          .toString(),
+      'https://www.google.com/maps/search/?api=1&query=1.0,2.0',
+    );
+    expect(
+      windowsService
+          .buildNavigationUris(latitude: 1, longitude: 2)
+          .single
+          .toString(),
+      'https://www.google.com/maps/search/?api=1&query=1.0,2.0',
+    );
+  });
+
+  test('NavigationService tries fallbacks until one opens', () async {
+    final attempted = <String>[];
+    final service = NavigationService(
+      platform: TargetPlatform.android,
+      isWeb: false,
+      launchUrlFn: (
+        Uri url, {
+        LaunchMode mode = LaunchMode.platformDefault,
+      }) async {
+        attempted.add(url.toString());
+        return url.scheme == 'https';
+      },
+    );
+
+    final opened = await service.openNavigation(
+      SavedParkingLocation(
+        latitude: 52.52,
+        longitude: 13.405,
+        savedAt: DateTime(2026, 8, 7),
+      ),
+    );
+
+    expect(opened, isTrue);
+    expect(attempted, <String>[
+      'google.navigation:q=52.52,13.405',
+      'geo:52.52,13.405?q=52.52,13.405',
+      'https://www.google.com/maps/search/?api=1&query=52.52,13.405',
+    ]);
   });
 }
