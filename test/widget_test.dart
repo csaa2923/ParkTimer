@@ -9,6 +9,7 @@ import 'package:parktimer/services/location_service.dart';
 import 'package:parktimer/services/navigation_service.dart';
 import 'package:parktimer/services/notification_service.dart';
 import 'package:parktimer/services/parking_location_store.dart';
+import 'package:parktimer/services/parking_session_store.dart';
 
 class _FakeClock {
   _FakeClock(this._now);
@@ -90,12 +91,25 @@ class _FakeNotificationService extends NotificationService {
   }
 }
 
-Future<ParkingLocationStore> _testStore([
+class _TestStores {
+  const _TestStores({
+    required this.location,
+    required this.session,
+  });
+
+  final ParkingLocationStore location;
+  final ParkingSessionStore session;
+}
+
+Future<_TestStores> _testStores([
   Map<String, Object> values = const <String, Object>{},
 ]) async {
   SharedPreferences.setMockInitialValues(Map<String, Object>.from(values));
   final preferences = await SharedPreferences.getInstance();
-  return ParkingLocationStore(preferences: preferences);
+  return _TestStores(
+    location: ParkingLocationStore(preferences: preferences),
+    session: ParkingSessionStore(preferences: preferences),
+  );
 }
 
 Future<void> _pumpApp(
@@ -103,14 +117,34 @@ Future<void> _pumpApp(
   DateTime Function()? now,
   LocationService? locationService,
   ParkingLocationStore? parkingLocationStore,
+  ParkingSessionStore? parkingSessionStore,
   NavigationService? navigationService,
   NotificationService? notificationService,
 }) async {
+  late final ParkingLocationStore locationStore;
+  late final ParkingSessionStore sessionStore;
+
+  if (parkingLocationStore != null && parkingSessionStore != null) {
+    locationStore = parkingLocationStore;
+    sessionStore = parkingSessionStore;
+  } else if (parkingLocationStore == null && parkingSessionStore == null) {
+    final stores = await _testStores();
+    locationStore = stores.location;
+    sessionStore = stores.session;
+  } else {
+    final preferences = await SharedPreferences.getInstance();
+    locationStore =
+        parkingLocationStore ?? ParkingLocationStore(preferences: preferences);
+    sessionStore =
+        parkingSessionStore ?? ParkingSessionStore(preferences: preferences);
+  }
+
   await tester.pumpWidget(
     ParkTimerApp(
       now: now ?? DateTime.now,
       locationService: locationService,
-      parkingLocationStore: parkingLocationStore ?? await _testStore(),
+      parkingLocationStore: locationStore,
+      parkingSessionStore: sessionStore,
       navigationService: navigationService,
       notificationService: notificationService ?? _FakeNotificationService(),
     ),
@@ -367,13 +401,14 @@ void main() {
       (WidgetTester tester) async {
     final clock = _FakeClock(DateTime(2026, 8, 7, 10, 0));
     final locationService = _FakeLocationService();
-    final store = await _testStore();
+    final stores = await _testStores();
 
     await _pumpApp(
       tester,
       now: clock.call,
       locationService: locationService,
-      parkingLocationStore: store,
+      parkingLocationStore: stores.location,
+      parkingSessionStore: stores.session,
     );
 
     expect(find.text('Standort merken'), findsOneWidget);
@@ -395,7 +430,7 @@ void main() {
     expect(state.savedPosition?.longitude, 13.405);
     expect(state.savedPosition?.savedAt, DateTime(2026, 8, 7, 10));
 
-    final persisted = await store.load();
+    final persisted = await stores.location.load();
     expect(persisted?.latitude, 52.52);
     expect(persisted?.longitude, 13.405);
     expect(persisted?.savedAt, DateTime(2026, 8, 7, 10));
@@ -421,7 +456,7 @@ void main() {
 
   testWidgets('Persisted parking location is restored on app start',
       (WidgetTester tester) async {
-    final store = await _testStore(<String, Object>{
+    final stores = await _testStores(<String, Object>{
       'parking_latitude': 52.52,
       'parking_longitude': 13.405,
       'parking_saved_at': '2026-08-07T10:00:00.000',
@@ -430,7 +465,8 @@ void main() {
     await _pumpApp(
       tester,
       locationService: _FakeLocationService(),
-      parkingLocationStore: store,
+      parkingLocationStore: stores.location,
+      parkingSessionStore: stores.session,
     );
 
     expect(find.text('Standort gespeichert ✓'), findsOneWidget);
@@ -445,7 +481,7 @@ void main() {
 
   testWidgets('clearSavedLocation removes persisted parking position',
       (WidgetTester tester) async {
-    final store = await _testStore(<String, Object>{
+    final stores = await _testStores(<String, Object>{
       'parking_latitude': 52.52,
       'parking_longitude': 13.405,
       'parking_saved_at': '2026-08-07T10:00:00.000',
@@ -454,7 +490,8 @@ void main() {
     await _pumpApp(
       tester,
       locationService: _FakeLocationService(),
-      parkingLocationStore: store,
+      parkingLocationStore: stores.location,
+      parkingSessionStore: stores.session,
     );
     expect(find.text('Standort gespeichert ✓'), findsOneWidget);
     expect(find.text('Zum Auto navigieren'), findsOneWidget);
@@ -466,13 +503,13 @@ void main() {
     expect(find.text('Standort merken'), findsOneWidget);
     expect(find.text('Standort gespeichert ✓'), findsNothing);
     expect(find.text('Zum Auto navigieren'), findsNothing);
-    expect(await store.load(), isNull);
+    expect(await stores.location.load(), isNull);
   });
 
   testWidgets('Zum Auto navigieren opens saved coordinates',
       (WidgetTester tester) async {
     final navigationService = _FakeNavigationService();
-    final store = await _testStore(<String, Object>{
+    final stores = await _testStores(<String, Object>{
       'parking_latitude': 52.52,
       'parking_longitude': 13.405,
       'parking_saved_at': '2026-08-07T10:00:00.000',
@@ -481,7 +518,8 @@ void main() {
     await _pumpApp(
       tester,
       locationService: _FakeLocationService(),
-      parkingLocationStore: store,
+      parkingLocationStore: stores.location,
+      parkingSessionStore: stores.session,
       navigationService: navigationService,
     );
 
@@ -499,7 +537,7 @@ void main() {
   testWidgets('Zum Auto navigieren shows snackbar when opening fails',
       (WidgetTester tester) async {
     final navigationService = _FakeNavigationService(shouldOpen: false);
-    final store = await _testStore(<String, Object>{
+    final stores = await _testStores(<String, Object>{
       'parking_latitude': 52.52,
       'parking_longitude': 13.405,
       'parking_saved_at': '2026-08-07T10:00:00.000',
@@ -508,7 +546,8 @@ void main() {
     await _pumpApp(
       tester,
       locationService: _FakeLocationService(),
-      parkingLocationStore: store,
+      parkingLocationStore: stores.location,
+      parkingSessionStore: stores.session,
       navigationService: navigationService,
     );
 
@@ -587,21 +626,176 @@ void main() {
   });
 
   test('ParkingLocationStore save load and clear', () async {
-    final store = await _testStore();
+    final stores = await _testStores();
     final location = SavedParkingLocation(
       latitude: 48.137,
       longitude: 11.575,
       savedAt: DateTime(2026, 8, 7, 12, 30),
     );
 
-    await store.save(location);
-    final loaded = await store.load();
+    await stores.location.save(location);
+    final loaded = await stores.location.load();
     expect(loaded?.latitude, 48.137);
     expect(loaded?.longitude, 11.575);
     expect(loaded?.savedAt, DateTime(2026, 8, 7, 12, 30));
 
-    await store.clear();
-    expect(await store.load(), isNull);
+    await stores.location.clear();
+    expect(await stores.location.load(), isNull);
+  });
+
+  test('ParkingSessionStore save load and clear', () async {
+    final stores = await _testStores();
+    final session = ParkingSession(
+      endTime: DateTime(2026, 8, 7, 10, 30),
+      startTime: DateTime(2026, 8, 7, 10),
+      isActive: true,
+    );
+
+    await stores.session.save(session);
+    final loaded = await stores.session.load();
+    expect(loaded?.endTime, DateTime(2026, 8, 7, 10, 30));
+    expect(loaded?.startTime, DateTime(2026, 8, 7, 10));
+    expect(loaded?.isActive, isTrue);
+
+    await stores.session.clear();
+    expect(await stores.session.load(), isNull);
+  });
+
+  testWidgets('Active parking session is restored after app restart',
+      (WidgetTester tester) async {
+    final notifications = _FakeNotificationService();
+    final stores = await _testStores(<String, Object>{
+      'parking_session_end_time': '2026-08-07T10:30:00.000',
+      'parking_session_start_time': '2026-08-07T10:00:00.000',
+      'parking_session_is_active': true,
+    });
+    final clock = _FakeClock(DateTime(2026, 8, 7, 10, 10));
+
+    await _pumpApp(
+      tester,
+      now: clock.call,
+      parkingLocationStore: stores.location,
+      parkingSessionStore: stores.session,
+      notificationService: notifications,
+    );
+
+    expect(find.text('Parken bis 10:30'), findsOneWidget);
+    expect(find.text('00:20:00'), findsOneWidget);
+    expect(find.text('Timer stoppen'), findsOneWidget);
+
+    final state = tester.state<StartScreenState>(find.byType(StartScreen));
+    expect(state.isRunning, isTrue);
+    expect(state.endTime, DateTime(2026, 8, 7, 10, 30));
+    expect(state.remaining, const Duration(minutes: 20));
+    expect(notifications.scheduledEndTimes, <DateTime>[
+      DateTime(2026, 8, 7, 10, 30),
+    ]);
+  });
+
+  testWidgets('Restored remaining time is calculated from absolute endTime',
+      (WidgetTester tester) async {
+    final stores = await _testStores(<String, Object>{
+      'parking_session_end_time': '2026-08-07T11:00:00.000',
+      'parking_session_start_time': '2026-08-07T10:00:00.000',
+      'parking_session_is_active': true,
+    });
+    final clock = _FakeClock(DateTime(2026, 8, 7, 10, 37, 15));
+
+    await _pumpApp(
+      tester,
+      now: clock.call,
+      parkingLocationStore: stores.location,
+      parkingSessionStore: stores.session,
+    );
+
+    expect(find.text('Parken bis 11:00'), findsOneWidget);
+    expect(find.text('00:22:45'), findsOneWidget);
+  });
+
+  testWidgets('Expired parking session is recognized on app start',
+      (WidgetTester tester) async {
+    final stores = await _testStores(<String, Object>{
+      'parking_session_end_time': '2026-08-07T10:00:00.000',
+      'parking_session_start_time': '2026-08-07T09:30:00.000',
+      'parking_session_is_active': true,
+    });
+    final clock = _FakeClock(DateTime(2026, 8, 7, 10, 5));
+
+    await _pumpApp(
+      tester,
+      now: clock.call,
+      parkingLocationStore: stores.location,
+      parkingSessionStore: stores.session,
+    );
+
+    expect(find.text('Parkzeit abgelaufen'), findsOneWidget);
+    expect(find.text('Timer stoppen'), findsNothing);
+    expect(await stores.session.load(), isNull);
+
+    final state = tester.state<StartScreenState>(find.byType(StartScreen));
+    expect(state.isExpired, isTrue);
+    expect(state.isRunning, isFalse);
+  });
+
+  testWidgets('Stopping a timer deletes the parking session',
+      (WidgetTester tester) async {
+    final clock = _FakeClock(DateTime(2026, 8, 7, 10, 0));
+    final stores = await _testStores();
+    final notifications = _FakeNotificationService();
+
+    await _pumpApp(
+      tester,
+      now: clock.call,
+      parkingLocationStore: stores.location,
+      parkingSessionStore: stores.session,
+      notificationService: notifications,
+    );
+
+    await tester.tap(find.text('30 Minuten'));
+    await tester.pump();
+    await tester.pump();
+
+    expect(await stores.session.load(), isNotNull);
+
+    await tester.ensureVisible(find.text('Timer stoppen'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Timer stoppen'));
+    await tester.pump();
+    await tester.pump();
+
+    expect(await stores.session.load(), isNull);
+    expect(notifications.cancelCount, 1);
+    expect(find.text('Parkzeit starten'), findsOneWidget);
+  });
+
+  testWidgets('Starting a new timer replaces the stored parking session',
+      (WidgetTester tester) async {
+    final clock = _FakeClock(DateTime(2026, 8, 7, 10, 0));
+    final stores = await _testStores();
+
+    await _pumpApp(
+      tester,
+      now: clock.call,
+      parkingLocationStore: stores.location,
+      parkingSessionStore: stores.session,
+    );
+
+    await tester.tap(find.text('30 Minuten'));
+    await tester.pump();
+    await tester.pump();
+
+    var session = await stores.session.load();
+    expect(session?.endTime, DateTime(2026, 8, 7, 10, 30));
+    expect(session?.startTime, DateTime(2026, 8, 7, 10));
+
+    await tester.tap(find.text('1 Stunde'));
+    await tester.pump();
+    await tester.pump();
+
+    session = await stores.session.load();
+    expect(session?.endTime, DateTime(2026, 8, 7, 11, 0));
+    expect(session?.startTime, DateTime(2026, 8, 7, 10));
+    expect(find.text('Parken bis 11:00'), findsOneWidget);
   });
 
   test('NavigationService builds Android map fallbacks', () {

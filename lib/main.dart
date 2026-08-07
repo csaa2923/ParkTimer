@@ -6,6 +6,7 @@ import 'package:parktimer/services/location_service.dart';
 import 'package:parktimer/services/navigation_service.dart';
 import 'package:parktimer/services/notification_service.dart';
 import 'package:parktimer/services/parking_location_store.dart';
+import 'package:parktimer/services/parking_session_store.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -19,6 +20,7 @@ class ParkTimerApp extends StatelessWidget {
     this.now = DateTime.now,
     this.locationService,
     this.parkingLocationStore,
+    this.parkingSessionStore,
     this.navigationService,
     this.notificationService,
   });
@@ -31,6 +33,9 @@ class ParkTimerApp extends StatelessWidget {
 
   /// Injectable parking location store for tests; defaults to the shared instance.
   final ParkingLocationStore? parkingLocationStore;
+
+  /// Injectable parking session store for tests; defaults to the shared instance.
+  final ParkingSessionStore? parkingSessionStore;
 
   /// Injectable navigation service for tests; defaults to the shared instance.
   final NavigationService? navigationService;
@@ -63,6 +68,8 @@ class ParkTimerApp extends StatelessWidget {
         locationService: locationService ?? LocationService.instance,
         parkingLocationStore:
             parkingLocationStore ?? ParkingLocationStore.instance,
+        parkingSessionStore:
+            parkingSessionStore ?? ParkingSessionStore.instance,
         navigationService: navigationService ?? NavigationService.instance,
         notificationService:
             notificationService ?? NotificationService.instance,
@@ -77,6 +84,7 @@ class StartScreen extends StatefulWidget {
     this.now = DateTime.now,
     required this.locationService,
     required this.parkingLocationStore,
+    required this.parkingSessionStore,
     required this.navigationService,
     required this.notificationService,
   });
@@ -84,6 +92,7 @@ class StartScreen extends StatefulWidget {
   final DateTime Function() now;
   final LocationService locationService;
   final ParkingLocationStore parkingLocationStore;
+  final ParkingSessionStore parkingSessionStore;
   final NavigationService navigationService;
   final NotificationService notificationService;
 
@@ -110,7 +119,14 @@ class StartScreenState extends State<StartScreen> {
   @override
   void initState() {
     super.initState();
-    _loadSavedLocation();
+    unawaited(_bootstrap());
+  }
+
+  Future<void> _bootstrap() async {
+    await Future.wait<void>([
+      _loadSavedLocation(),
+      _restoreParkingSession(),
+    ]);
   }
 
   Future<void> _loadSavedLocation() async {
@@ -124,18 +140,70 @@ class StartScreenState extends State<StartScreen> {
     });
   }
 
-  void startTimer(Duration duration) {
+  Future<void> _restoreParkingSession() async {
+    final session = await widget.parkingSessionStore.load();
+    if (!mounted || session == null || !session.isActive) {
+      return;
+    }
+
+    final now = widget.now();
+    if (session.endTime.isAfter(now)) {
+      _beginTicker(
+        endTime: session.endTime,
+        remaining: session.endTime.difference(now),
+      );
+      // Re-plan remaining notifications; scheduleParkingNotifications cancels
+      // existing IDs first to avoid duplicates.
+      unawaited(
+        widget.notificationService.scheduleParkingNotifications(session.endTime),
+      );
+      return;
+    }
+
+    await widget.parkingSessionStore.clear();
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _endTime = session.endTime;
+      _remaining = Duration.zero;
+      _isRunning = false;
+      _isExpired = true;
+    });
+  }
+
+  void _beginTicker({
+    required DateTime endTime,
+    required Duration remaining,
+  }) {
     _ticker?.cancel();
 
-    final end = widget.now().add(duration);
     setState(() {
-      _endTime = end;
-      _remaining = duration;
+      _endTime = endTime;
+      _remaining = remaining;
       _isRunning = true;
       _isExpired = false;
     });
 
     _ticker = Timer.periodic(const Duration(seconds: 1), (_) => _onTick());
+  }
+
+  void startTimer(Duration duration) {
+    final start = widget.now();
+    final end = start.add(duration);
+
+    _beginTicker(endTime: end, remaining: duration);
+
+    unawaited(
+      widget.parkingSessionStore.save(
+        ParkingSession(
+          endTime: end,
+          startTime: start,
+          isActive: true,
+        ),
+      ),
+    );
     unawaited(widget.notificationService.scheduleParkingNotifications(end));
   }
 
@@ -150,6 +218,7 @@ class StartScreenState extends State<StartScreen> {
       _isExpired = false;
     });
 
+    unawaited(widget.parkingSessionStore.clear());
     unawaited(widget.notificationService.cancelParkingNotifications());
   }
 
@@ -254,6 +323,7 @@ class StartScreenState extends State<StartScreen> {
         _isRunning = false;
         _isExpired = true;
       });
+      unawaited(widget.parkingSessionStore.clear());
       return;
     }
 
