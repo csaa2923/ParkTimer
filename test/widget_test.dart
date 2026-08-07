@@ -7,6 +7,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:parktimer/main.dart';
 import 'package:parktimer/services/location_service.dart';
 import 'package:parktimer/services/navigation_service.dart';
+import 'package:parktimer/services/notification_service.dart';
 import 'package:parktimer/services/parking_location_store.dart';
 
 class _FakeClock {
@@ -71,12 +72,50 @@ class _FakeNavigationService extends NavigationService {
   }
 }
 
+class _FakeNotificationService extends NotificationService {
+  final List<DateTime> scheduledEndTimes = <DateTime>[];
+  int cancelCount = 0;
+
+  @override
+  Future<void> initialize() async {}
+
+  @override
+  Future<void> scheduleParkingNotifications(DateTime endTime) async {
+    scheduledEndTimes.add(endTime);
+  }
+
+  @override
+  Future<void> cancelParkingNotifications() async {
+    cancelCount += 1;
+  }
+}
+
 Future<ParkingLocationStore> _testStore([
   Map<String, Object> values = const <String, Object>{},
 ]) async {
   SharedPreferences.setMockInitialValues(Map<String, Object>.from(values));
   final preferences = await SharedPreferences.getInstance();
   return ParkingLocationStore(preferences: preferences);
+}
+
+Future<void> _pumpApp(
+  WidgetTester tester, {
+  DateTime Function()? now,
+  LocationService? locationService,
+  ParkingLocationStore? parkingLocationStore,
+  NavigationService? navigationService,
+  NotificationService? notificationService,
+}) async {
+  await tester.pumpWidget(
+    ParkTimerApp(
+      now: now ?? DateTime.now,
+      locationService: locationService,
+      parkingLocationStore: parkingLocationStore ?? await _testStore(),
+      navigationService: navigationService,
+      notificationService: notificationService ?? _FakeNotificationService(),
+    ),
+  );
+  await tester.pumpAndSettle();
 }
 
 void main() {
@@ -87,10 +126,7 @@ void main() {
   });
 
   testWidgets('Start screen shows ParkTimer UI', (WidgetTester tester) async {
-    await tester.pumpWidget(ParkTimerApp(
-      parkingLocationStore: await _testStore(),
-    ));
-    await tester.pumpAndSettle();
+    await _pumpApp(tester);
 
     expect(find.textContaining('ParkTimer'), findsOneWidget);
     expect(find.text('Parkzeit starten'), findsOneWidget);
@@ -100,17 +136,14 @@ void main() {
     expect(find.text('Eigene Zeit'), findsOneWidget);
     expect(find.text('Standort merken'), findsOneWidget);
     expect(find.text('Zum Auto navigieren'), findsNothing);
+    expect(find.text('Test-Benachrichtigung'), findsNothing);
     expect(find.text('Timer stoppen'), findsNothing);
   });
 
   testWidgets('Starting a timer shows end time and countdown',
       (WidgetTester tester) async {
     final clock = _FakeClock(DateTime(2026, 8, 7, 10, 0));
-    await tester.pumpWidget(ParkTimerApp(
-      now: clock.call,
-      parkingLocationStore: await _testStore(),
-    ));
-    await tester.pumpAndSettle();
+    await _pumpApp(tester, now: clock.call);
 
     await tester.tap(find.text('30 Minuten'));
     await tester.pump();
@@ -128,11 +161,7 @@ void main() {
 
   testWidgets('Countdown updates every second', (WidgetTester tester) async {
     final clock = _FakeClock(DateTime(2026, 8, 7, 10, 0));
-    await tester.pumpWidget(ParkTimerApp(
-      now: clock.call,
-      parkingLocationStore: await _testStore(),
-    ));
-    await tester.pumpAndSettle();
+    await _pumpApp(tester, now: clock.call);
 
     await tester.tap(find.text('1 Stunde'));
     await tester.pump();
@@ -147,11 +176,7 @@ void main() {
   testWidgets('Starting a new timer replaces the current one',
       (WidgetTester tester) async {
     final clock = _FakeClock(DateTime(2026, 8, 7, 10, 0));
-    await tester.pumpWidget(ParkTimerApp(
-      now: clock.call,
-      parkingLocationStore: await _testStore(),
-    ));
-    await tester.pumpAndSettle();
+    await _pumpApp(tester, now: clock.call);
 
     await tester.tap(find.text('30 Minuten'));
     await tester.pump();
@@ -166,11 +191,7 @@ void main() {
 
   testWidgets('Stop button resets the timer UI', (WidgetTester tester) async {
     final clock = _FakeClock(DateTime(2026, 8, 7, 10, 0));
-    await tester.pumpWidget(ParkTimerApp(
-      now: clock.call,
-      parkingLocationStore: await _testStore(),
-    ));
-    await tester.pumpAndSettle();
+    await _pumpApp(tester, now: clock.call);
 
     await tester.tap(find.text('30 Minuten'));
     await tester.pump();
@@ -189,11 +210,7 @@ void main() {
   testWidgets('Expired timer shows Parkzeit abgelaufen',
       (WidgetTester tester) async {
     final clock = _FakeClock(DateTime(2026, 8, 7, 10, 0));
-    await tester.pumpWidget(ParkTimerApp(
-      now: clock.call,
-      parkingLocationStore: await _testStore(),
-    ));
-    await tester.pumpAndSettle();
+    await _pumpApp(tester, now: clock.call);
 
     final state = tester.state<StartScreenState>(find.byType(StartScreen));
     state.startTimer(const Duration(seconds: 2));
@@ -220,10 +237,7 @@ void main() {
   });
 
   testWidgets('Eigene Zeit opens custom time sheet', (WidgetTester tester) async {
-    await tester.pumpWidget(ParkTimerApp(
-      parkingLocationStore: await _testStore(),
-    ));
-    await tester.pumpAndSettle();
+    await _pumpApp(tester);
 
     await tester.ensureVisible(find.text('Eigene Zeit'));
     await tester.pumpAndSettle();
@@ -240,11 +254,7 @@ void main() {
   testWidgets('Custom time starts countdown with selected duration',
       (WidgetTester tester) async {
     final clock = _FakeClock(DateTime(2026, 8, 7, 10, 0));
-    await tester.pumpWidget(ParkTimerApp(
-      now: clock.call,
-      parkingLocationStore: await _testStore(),
-    ));
-    await tester.pumpAndSettle();
+    await _pumpApp(tester, now: clock.call);
 
     await tester.ensureVisible(find.text('Eigene Zeit'));
     await tester.pumpAndSettle();
@@ -281,11 +291,7 @@ void main() {
   testWidgets('Custom time cancel keeps running timer unchanged',
       (WidgetTester tester) async {
     final clock = _FakeClock(DateTime(2026, 8, 7, 10, 0));
-    await tester.pumpWidget(ParkTimerApp(
-      now: clock.call,
-      parkingLocationStore: await _testStore(),
-    ));
-    await tester.pumpAndSettle();
+    await _pumpApp(tester, now: clock.call);
 
     await tester.tap(find.text('30 Minuten'));
     await tester.pump();
@@ -309,10 +315,7 @@ void main() {
 
   testWidgets('Custom time requires at least one minute',
       (WidgetTester tester) async {
-    await tester.pumpWidget(ParkTimerApp(
-      parkingLocationStore: await _testStore(),
-    ));
-    await tester.pumpAndSettle();
+    await _pumpApp(tester);
 
     await tester.ensureVisible(find.text('Eigene Zeit'));
     await tester.pumpAndSettle();
@@ -339,11 +342,7 @@ void main() {
   testWidgets('Custom time replaces an already running timer',
       (WidgetTester tester) async {
     final clock = _FakeClock(DateTime(2026, 8, 7, 10, 0));
-    await tester.pumpWidget(ParkTimerApp(
-      now: clock.call,
-      parkingLocationStore: await _testStore(),
-    ));
-    await tester.pumpAndSettle();
+    await _pumpApp(tester, now: clock.call);
 
     await tester.tap(find.text('30 Minuten'));
     await tester.pump();
@@ -370,12 +369,12 @@ void main() {
     final locationService = _FakeLocationService();
     final store = await _testStore();
 
-    await tester.pumpWidget(ParkTimerApp(
+    await _pumpApp(
+      tester,
       now: clock.call,
       locationService: locationService,
       parkingLocationStore: store,
-    ));
-    await tester.pumpAndSettle();
+    );
 
     expect(find.text('Standort merken'), findsOneWidget);
 
@@ -405,11 +404,7 @@ void main() {
   testWidgets('Standort merken failure keeps original button label',
       (WidgetTester tester) async {
     final locationService = _FakeLocationService(shouldSucceed: false);
-    await tester.pumpWidget(ParkTimerApp(
-      locationService: locationService,
-      parkingLocationStore: await _testStore(),
-    ));
-    await tester.pumpAndSettle();
+    await _pumpApp(tester, locationService: locationService);
 
     await tester.ensureVisible(find.text('Standort merken'));
     await tester.pumpAndSettle();
@@ -432,11 +427,11 @@ void main() {
       'parking_saved_at': '2026-08-07T10:00:00.000',
     });
 
-    await tester.pumpWidget(ParkTimerApp(
+    await _pumpApp(
+      tester,
       locationService: _FakeLocationService(),
       parkingLocationStore: store,
-    ));
-    await tester.pumpAndSettle();
+    );
 
     expect(find.text('Standort gespeichert ✓'), findsOneWidget);
     expect(find.text('Zum Auto navigieren'), findsOneWidget);
@@ -456,11 +451,11 @@ void main() {
       'parking_saved_at': '2026-08-07T10:00:00.000',
     });
 
-    await tester.pumpWidget(ParkTimerApp(
+    await _pumpApp(
+      tester,
       locationService: _FakeLocationService(),
       parkingLocationStore: store,
-    ));
-    await tester.pumpAndSettle();
+    );
     expect(find.text('Standort gespeichert ✓'), findsOneWidget);
     expect(find.text('Zum Auto navigieren'), findsOneWidget);
 
@@ -483,12 +478,12 @@ void main() {
       'parking_saved_at': '2026-08-07T10:00:00.000',
     });
 
-    await tester.pumpWidget(ParkTimerApp(
+    await _pumpApp(
+      tester,
       locationService: _FakeLocationService(),
       parkingLocationStore: store,
       navigationService: navigationService,
-    ));
-    await tester.pumpAndSettle();
+    );
 
     await tester.ensureVisible(find.text('Zum Auto navigieren'));
     await tester.pumpAndSettle();
@@ -510,12 +505,12 @@ void main() {
       'parking_saved_at': '2026-08-07T10:00:00.000',
     });
 
-    await tester.pumpWidget(ParkTimerApp(
+    await _pumpApp(
+      tester,
       locationService: _FakeLocationService(),
       parkingLocationStore: store,
       navigationService: navigationService,
-    ));
-    await tester.pumpAndSettle();
+    );
 
     await tester.ensureVisible(find.text('Zum Auto navigieren'));
     await tester.pumpAndSettle();
@@ -526,6 +521,69 @@ void main() {
       find.text('Karten-App konnte nicht geöffnet werden'),
       findsOneWidget,
     );
+  });
+
+  testWidgets('Starting a timer schedules parking notifications',
+      (WidgetTester tester) async {
+    final clock = _FakeClock(DateTime(2026, 8, 7, 10, 0));
+    final notifications = _FakeNotificationService();
+    await _pumpApp(
+      tester,
+      now: clock.call,
+      notificationService: notifications,
+    );
+
+    await tester.tap(find.text('30 Minuten'));
+    await tester.pump();
+    await tester.pump();
+
+    expect(notifications.scheduledEndTimes, <DateTime>[
+      DateTime(2026, 8, 7, 10, 30),
+    ]);
+  });
+
+  testWidgets('Replacing a timer schedules notifications for the new end time',
+      (WidgetTester tester) async {
+    final clock = _FakeClock(DateTime(2026, 8, 7, 10, 0));
+    final notifications = _FakeNotificationService();
+    await _pumpApp(
+      tester,
+      now: clock.call,
+      notificationService: notifications,
+    );
+
+    await tester.tap(find.text('30 Minuten'));
+    await tester.pump();
+    await tester.tap(find.text('1 Stunde'));
+    await tester.pump();
+    await tester.pump();
+
+    expect(notifications.scheduledEndTimes, <DateTime>[
+      DateTime(2026, 8, 7, 10, 30),
+      DateTime(2026, 8, 7, 11, 0),
+    ]);
+  });
+
+  testWidgets('Stopping a timer cancels parking notifications',
+      (WidgetTester tester) async {
+    final clock = _FakeClock(DateTime(2026, 8, 7, 10, 0));
+    final notifications = _FakeNotificationService();
+    await _pumpApp(
+      tester,
+      now: clock.call,
+      notificationService: notifications,
+    );
+
+    await tester.tap(find.text('30 Minuten'));
+    await tester.pump();
+
+    await tester.ensureVisible(find.text('Timer stoppen'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Timer stoppen'));
+    await tester.pump();
+    await tester.pump();
+
+    expect(notifications.cancelCount, 1);
   });
 
   test('ParkingLocationStore save load and clear', () async {
@@ -655,5 +713,50 @@ void main() {
       'geo:52.52,13.405?q=52.52,13.405',
       'https://www.google.com/maps/search/?api=1&query=52.52,13.405',
     ]);
+  });
+
+  test('planParkingNotifications schedules 10, 5 and expiry for long timers', () {
+    final now = DateTime(2026, 8, 7, 10);
+    final endTime = now.add(const Duration(minutes: 30));
+
+    final planned = planParkingNotifications(endTime: endTime, now: now);
+
+    expect(planned.map((item) => item.id).toList(), <int>[
+      ParkingNotificationIds.tenMinutes,
+      ParkingNotificationIds.fiveMinutes,
+      ParkingNotificationIds.expired,
+    ]);
+    expect(planned[0].scheduledAt, DateTime(2026, 8, 7, 10, 20));
+    expect(planned[0].title, 'ParkTimer');
+    expect(planned[0].body, 'Deine Parkzeit endet in 10 Minuten.');
+    expect(planned[1].scheduledAt, DateTime(2026, 8, 7, 10, 25));
+    expect(planned[1].body, 'Deine Parkzeit endet in 5 Minuten.');
+    expect(planned[2].scheduledAt, endTime);
+    expect(planned[2].title, 'Parkzeit abgelaufen');
+    expect(planned[2].body, 'Deine Parkzeit ist jetzt abgelaufen.');
+  });
+
+  test('planParkingNotifications skips past reminders for short timers', () {
+    final now = DateTime(2026, 8, 7, 10);
+    final endTime = now.add(const Duration(minutes: 7));
+
+    final planned = planParkingNotifications(endTime: endTime, now: now);
+
+    expect(planned.map((item) => item.id).toList(), <int>[
+      ParkingNotificationIds.fiveMinutes,
+      ParkingNotificationIds.expired,
+    ]);
+    expect(planned.first.scheduledAt, DateTime(2026, 8, 7, 10, 2));
+  });
+
+  test('planParkingNotifications keeps only expiry under five minutes', () {
+    final now = DateTime(2026, 8, 7, 10);
+    final endTime = now.add(const Duration(minutes: 3));
+
+    final planned = planParkingNotifications(endTime: endTime, now: now);
+
+    expect(planned, hasLength(1));
+    expect(planned.single.id, ParkingNotificationIds.expired);
+    expect(planned.single.scheduledAt, endTime);
   });
 }

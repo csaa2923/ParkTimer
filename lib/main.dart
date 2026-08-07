@@ -20,6 +20,7 @@ class ParkTimerApp extends StatelessWidget {
     this.locationService,
     this.parkingLocationStore,
     this.navigationService,
+    this.notificationService,
   });
 
   /// Injectable clock for tests; defaults to wall clock time.
@@ -33,6 +34,9 @@ class ParkTimerApp extends StatelessWidget {
 
   /// Injectable navigation service for tests; defaults to the shared instance.
   final NavigationService? navigationService;
+
+  /// Injectable notification service for tests; defaults to the shared instance.
+  final NotificationService? notificationService;
 
   static const Color primaryBlue = Color(0xFF1E3A8A);
   static const Color accentGreen = Color(0xFF22C55E);
@@ -60,6 +64,8 @@ class ParkTimerApp extends StatelessWidget {
         parkingLocationStore:
             parkingLocationStore ?? ParkingLocationStore.instance,
         navigationService: navigationService ?? NavigationService.instance,
+        notificationService:
+            notificationService ?? NotificationService.instance,
       ),
     );
   }
@@ -72,12 +78,14 @@ class StartScreen extends StatefulWidget {
     required this.locationService,
     required this.parkingLocationStore,
     required this.navigationService,
+    required this.notificationService,
   });
 
   final DateTime Function() now;
   final LocationService locationService;
   final ParkingLocationStore parkingLocationStore;
   final NavigationService navigationService;
+  final NotificationService notificationService;
 
   @override
   State<StartScreen> createState() => StartScreenState();
@@ -128,6 +136,7 @@ class StartScreenState extends State<StartScreen> {
     });
 
     _ticker = Timer.periodic(const Duration(seconds: 1), (_) => _onTick());
+    unawaited(widget.notificationService.scheduleParkingNotifications(end));
   }
 
   void stopTimer() {
@@ -140,6 +149,8 @@ class StartScreenState extends State<StartScreen> {
       _isRunning = false;
       _isExpired = false;
     });
+
+    unawaited(widget.notificationService.cancelParkingNotifications());
   }
 
   Future<void> openCustomTimePicker() async {
@@ -148,11 +159,6 @@ class StartScreenState extends State<StartScreen> {
       return;
     }
     startTimer(duration);
-  }
-
-  Future<void> _onTestNotificationPressed() async {
-    await NotificationService.instance.requestPermissions();
-    await NotificationService.instance.showTestNotification();
   }
 
   Future<void> rememberLocation() async {
@@ -354,18 +360,6 @@ class StartScreenState extends State<StartScreen> {
                       padding: const EdgeInsets.only(top: 32, bottom: 8),
                       child: Column(
                         children: [
-                          TextButton(
-                            onPressed: _onTestNotificationPressed,
-                            style: TextButton.styleFrom(
-                              foregroundColor: const Color(0xFF9CA3AF),
-                              textStyle: const TextStyle(
-                                fontSize: 13,
-                                fontWeight: FontWeight.w500,
-                              ),
-                            ),
-                            child: const Text('Test-Benachrichtigung'),
-                          ),
-                          const SizedBox(height: 4),
                           LocationButton(
                             isSaved: hasSavedPosition,
                             isLoading: _isSavingLocation,
