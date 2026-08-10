@@ -46,8 +46,8 @@ class ParkTimerApp extends StatelessWidget {
   static const Color primaryBlue = Color(0xFF1E3A8A);
   static const Color accentGreen = Color(0xFF22C55E);
   static const Color backgroundGray = Color(0xFFF5F7FA);
-  static const Color warningOrange = Color(0xFFEA580C);
-  static const Color dangerRed = Color(0xFFDC2626);
+  static const Color warningOrange = Color(0xFFF59E0B);
+  static const Color dangerRed = Color(0xFFEF4444);
 
   @override
   Widget build(BuildContext context) {
@@ -410,33 +410,15 @@ class StartScreenState extends State<StartScreen> {
                     : const SizedBox.shrink(key: ValueKey('no-stop-timer')),
               ),
               const SizedBox(height: 24),
-              AnimatedSwitcher(
-                duration: const Duration(milliseconds: 280),
-                child: hasSavedPosition
-                    ? Padding(
-                        key: const ValueKey('saved-location-card'),
-                        padding: const EdgeInsets.only(bottom: 12),
-                        child: SavedLocationInfoCard(
-                          savedAt: _savedLocation!.savedAt,
-                        ),
-                      )
-                    : const SizedBox.shrink(key: ValueKey('no-location-card')),
-              ),
-              LocationButton(
-                isSaved: hasSavedPosition,
-                isLoading: _isSavingLocation,
-                onPressed: rememberLocation,
-              ),
-              AnimatedSwitcher(
-                duration: const Duration(milliseconds: 250),
-                child: hasSavedPosition
-                    ? Padding(
-                        key: const ValueKey('navigate-button'),
-                        padding: const EdgeInsets.only(top: 12),
-                        child: NavigateToCarButton(onPressed: navigateToCar),
-                      )
-                    : const SizedBox.shrink(key: ValueKey('no-navigate')),
-              ),
+              if (hasSavedPosition) ...[
+                SavedLocationInfoCard(savedAt: _savedLocation!.savedAt),
+                const SizedBox(height: 12),
+                NavigateToCarButton(onPressed: navigateToCar),
+              ] else
+                LocationButton(
+                  isLoading: _isSavingLocation,
+                  onPressed: rememberLocation,
+                ),
             ],
           ),
         ),
@@ -456,10 +438,13 @@ Color parkingStatusColor({
   if (!isRunning) {
     return ParkTimerApp.primaryBlue;
   }
-  if (remaining <= const Duration(minutes: 10)) {
+  if (remaining > const Duration(minutes: 15)) {
+    return ParkTimerApp.accentGreen;
+  }
+  if (remaining >= const Duration(minutes: 5)) {
     return ParkTimerApp.warningOrange;
   }
-  return ParkTimerApp.primaryBlue;
+  return ParkTimerApp.dangerRed;
 }
 
 class _ParkingHeroIcon extends StatelessWidget {
@@ -513,30 +498,8 @@ class _StatusSection extends StatelessWidget {
       remaining: remaining,
     );
 
-    return AnimatedSwitcher(
-      duration: const Duration(milliseconds: 320),
-      switchInCurve: Curves.easeOutCubic,
-      switchOutCurve: Curves.easeInCubic,
-      transitionBuilder: (child, animation) {
-        return FadeTransition(
-          opacity: animation,
-          child: SlideTransition(
-            position: Tween<Offset>(
-              begin: const Offset(0, 0.06),
-              end: Offset.zero,
-            ).animate(animation),
-            child: child,
-          ),
-        );
-      },
-      child: _buildContent(context, statusColor),
-    );
-  }
-
-  Widget _buildContent(BuildContext context, Color statusColor) {
     if (isExpired) {
       return Text(
-        key: const ValueKey('status-expired'),
         'Parkzeit abgelaufen',
         textAlign: TextAlign.center,
         style: Theme.of(context).textTheme.headlineSmall?.copyWith(
@@ -551,24 +514,11 @@ class _StatusSection extends StatelessWidget {
           Theme.of(context).textTheme.displaySmall?.fontSize ?? 36;
       final countdownSize = baseSize * 1.2;
 
-      final urgencyKey =
-          remaining <= const Duration(minutes: 10) ? 'warn' : 'ok';
-
       return Column(
-        key: ValueKey('status-running-$urgencyKey'),
         children: [
           Text(
-            'Parken bis ${formatClockTime(endTime!)}',
+            formatCountdown(remaining),
             textAlign: TextAlign.center,
-            style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                  color: statusColor.withValues(alpha: 0.85),
-                  fontWeight: FontWeight.w500,
-                ),
-          ),
-          const SizedBox(height: 8),
-          AnimatedDefaultTextStyle(
-            duration: const Duration(milliseconds: 280),
-            curve: Curves.easeOutCubic,
             style: TextStyle(
               color: statusColor,
               fontSize: countdownSize,
@@ -577,17 +527,21 @@ class _StatusSection extends StatelessWidget {
               letterSpacing: 1.2,
               height: 1.05,
             ),
-            child: Text(
-              formatCountdown(remaining),
-              textAlign: TextAlign.center,
-            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Parken bis ${formatClockTime(endTime!)}',
+            textAlign: TextAlign.center,
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  color: const Color(0xFF6B7280),
+                  fontWeight: FontWeight.w500,
+                ),
           ),
         ],
       );
     }
 
     return Text(
-      key: const ValueKey('status-idle'),
       'Parkzeit starten',
       textAlign: TextAlign.center,
       style: Theme.of(context).textTheme.titleLarge?.copyWith(
@@ -650,7 +604,7 @@ class SavedLocationInfoCard extends StatelessWidget {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  'Gespeichert am ${formatClockTime(savedAt)}',
+                  'Gespeichert um ${formatClockTime(savedAt)}',
                   style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                         color: const Color(0xFF6B7280),
                       ),
@@ -953,22 +907,21 @@ class StopTimerButton extends StatelessWidget {
     return _AnimatedPressScale(
       child: SizedBox(
         width: double.infinity,
-        height: 52,
-        child: OutlinedButton(
+        height: 56,
+        child: ElevatedButton(
           onPressed: onPressed,
-          style: OutlinedButton.styleFrom(
-            foregroundColor: ParkTimerApp.dangerRed,
-            side: BorderSide(
-              color: ParkTimerApp.dangerRed.withValues(alpha: 0.55),
-              width: 1.4,
-            ),
-            backgroundColor: ParkTimerApp.dangerRed.withValues(alpha: 0.06),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: ParkTimerApp.dangerRed,
+            foregroundColor: Colors.white,
+            elevation: 2,
+            shadowColor: ParkTimerApp.dangerRed.withValues(alpha: 0.28),
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(18),
             ),
             textStyle: const TextStyle(
-              fontSize: 16,
+              fontSize: 17,
               fontWeight: FontWeight.w600,
+              letterSpacing: 0.2,
             ),
           ),
           child: const Text('Timer stoppen'),
@@ -1016,44 +969,29 @@ class LocationButton extends StatelessWidget {
   const LocationButton({
     super.key,
     required this.onPressed,
-    this.isSaved = false,
     this.isLoading = false,
   });
 
   final VoidCallback onPressed;
-  final bool isSaved;
   final bool isLoading;
 
   @override
   Widget build(BuildContext context) {
-    final backgroundColor =
-        isSaved ? ParkTimerApp.accentGreen : const Color(0xFFE5E7EB);
-    final foregroundColor = isSaved ? Colors.white : const Color(0xFF4B5563);
-
     return _AnimatedPressScale(
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 250),
-        curve: Curves.easeOutCubic,
+      child: SizedBox(
         width: double.infinity,
         height: 56,
         child: ElevatedButton.icon(
           onPressed: isLoading ? null : onPressed,
-          icon: Icon(
-            isSaved ? Icons.check_circle_rounded : Icons.location_on_outlined,
-            size: 22,
-          ),
-          label: Text(
-            isSaved ? 'Standort gespeichert ✓' : 'Standort merken',
-          ),
+          icon: const Icon(Icons.location_on_outlined, size: 22),
+          label: const Text('Standort merken'),
           style: ElevatedButton.styleFrom(
-            backgroundColor: backgroundColor,
-            disabledBackgroundColor: backgroundColor.withValues(alpha: 0.7),
-            foregroundColor: foregroundColor,
-            disabledForegroundColor: foregroundColor.withValues(alpha: 0.8),
-            elevation: isSaved ? 2 : 1,
-            shadowColor: isSaved
-                ? ParkTimerApp.accentGreen.withValues(alpha: 0.3)
-                : Colors.black12,
+            backgroundColor: const Color(0xFFE5E7EB),
+            disabledBackgroundColor: const Color(0xFFE5E7EB).withValues(alpha: 0.7),
+            foregroundColor: const Color(0xFF4B5563),
+            disabledForegroundColor: const Color(0xFF4B5563).withValues(alpha: 0.8),
+            elevation: 1,
+            shadowColor: Colors.black12,
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(18),
             ),

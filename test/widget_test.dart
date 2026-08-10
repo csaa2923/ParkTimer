@@ -421,9 +421,11 @@ void main() {
 
     expect(locationService.obtainCallCount, 1);
     expect(find.text('Standort gespeichert'), findsOneWidget);
-    expect(find.text('Standort gespeichert ✓'), findsOneWidget);
+    expect(find.text('📍 Standort gespeichert'), findsOneWidget);
+    expect(find.text('Gespeichert um 10:00'), findsOneWidget);
     expect(find.text('Zum Auto navigieren'), findsOneWidget);
     expect(find.text('Standort merken'), findsNothing);
+    expect(find.text('Standort gespeichert ✓'), findsNothing);
 
     final state = tester.state<StartScreenState>(find.byType(StartScreen));
     expect(state.hasSavedPosition, isTrue);
@@ -448,7 +450,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Standort merken'), findsOneWidget);
-    expect(find.text('Standort gespeichert ✓'), findsNothing);
+    expect(find.text('📍 Standort gespeichert'), findsNothing);
     expect(
       find.text('Standort konnte nicht gespeichert werden'),
       findsOneWidget,
@@ -470,7 +472,8 @@ void main() {
       parkingSessionStore: stores.session,
     );
 
-    expect(find.text('Standort gespeichert ✓'), findsOneWidget);
+    expect(find.text('📍 Standort gespeichert'), findsOneWidget);
+    expect(find.text('Gespeichert um 10:00'), findsOneWidget);
     expect(find.text('Zum Auto navigieren'), findsOneWidget);
     expect(find.text('Standort merken'), findsNothing);
 
@@ -494,7 +497,7 @@ void main() {
       parkingLocationStore: stores.location,
       parkingSessionStore: stores.session,
     );
-    expect(find.text('Standort gespeichert ✓'), findsOneWidget);
+    expect(find.text('📍 Standort gespeichert'), findsOneWidget);
     expect(find.text('Zum Auto navigieren'), findsOneWidget);
 
     final state = tester.state<StartScreenState>(find.byType(StartScreen));
@@ -502,7 +505,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Standort merken'), findsOneWidget);
-    expect(find.text('Standort gespeichert ✓'), findsNothing);
+    expect(find.text('📍 Standort gespeichert'), findsNothing);
     expect(find.text('Zum Auto navigieren'), findsNothing);
     expect(await stores.location.load(), isNull);
   });
