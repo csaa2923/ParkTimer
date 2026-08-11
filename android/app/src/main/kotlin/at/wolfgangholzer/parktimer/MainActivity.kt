@@ -1,4 +1,4 @@
-package com.example.parktimer
+package at.wolfgangholzer.parktimer
 
 import io.flutter.embedding.android.FlutterActivity
 
