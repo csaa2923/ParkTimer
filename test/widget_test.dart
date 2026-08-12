@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -76,6 +77,7 @@ class _FakeNavigationService extends NavigationService {
 class _FakeNotificationService extends NotificationService {
   final List<DateTime> scheduledEndTimes = <DateTime>[];
   int cancelCount = 0;
+  int testNotificationCount = 0;
 
   @override
   Future<void> initialize() async {}
@@ -88,6 +90,11 @@ class _FakeNotificationService extends NotificationService {
   @override
   Future<void> cancelParkingNotifications() async {
     cancelCount += 1;
+  }
+
+  @override
+  Future<void> showTestNotification() async {
+    testNotificationCount += 1;
   }
 }
 
@@ -956,5 +963,40 @@ void main() {
     expect(planned, hasLength(1));
     expect(planned.single.id, ParkingNotificationIds.expired);
     expect(planned.single.scheduledAt, endTime);
+  });
+
+  test('parkingNotificationDetails uses the dedicated parking channel', () {
+    final details = parkingNotificationDetails();
+    final android = details.android!;
+
+    expect(android.channelId, ParkingNotificationChannel.id);
+    expect(android.channelName, ParkingNotificationChannel.name);
+    expect(
+      android.channelDescription,
+      ParkingNotificationChannel.description,
+    );
+    expect(android.importance, Importance.high);
+    expect(android.priority, Priority.high);
+    expect(ParkingNotificationChannel.id, 'parktimer_parking');
+    expect(ParkingNotificationChannel.name, 'Parkzeiten');
+  });
+
+  testWidgets('Test notification button triggers showTestNotification',
+      (tester) async {
+    final notifications = _FakeNotificationService();
+
+    await _pumpApp(
+      tester,
+      notificationService: notifications,
+    );
+
+    final button = find.byKey(const Key('test_notification_button'));
+    await tester.ensureVisible(button);
+    await tester.pumpAndSettle();
+    await tester.tap(button);
+    await tester.pump();
+
+    expect(notifications.testNotificationCount, 1);
+    expect(find.text('Benachrichtigung testen'), findsOneWidget);
   });
 }

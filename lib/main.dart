@@ -10,7 +10,13 @@ import 'package:parktimer/services/parking_session_store.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await NotificationService.instance.initialize();
+  try {
+    await NotificationService.instance.initialize();
+  } catch (error, stackTrace) {
+    debugPrint(
+      '[ParkTimer/Notifications] Startup initialize failed: $error\n$stackTrace',
+    );
+  }
   runApp(const ParkTimerApp());
 }
 
@@ -419,6 +425,15 @@ class StartScreenState extends State<StartScreen> {
                   isLoading: _isSavingLocation,
                   onPressed: rememberLocation,
                 ),
+              // TEMPORARY: internal notification channel / permission check.
+              const SizedBox(height: 16),
+              TextButton(
+                key: const Key('test_notification_button'),
+                onPressed: () {
+                  unawaited(widget.notificationService.showTestNotification());
+                },
+                child: const Text('Benachrichtigung testen'),
+              ),
             ],
           ),
         ),

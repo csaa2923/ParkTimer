@@ -9,12 +9,33 @@ abstract final class ParkingNotificationIds {
   static const int tenMinutes = 1001;
   static const int fiveMinutes = 1002;
   static const int expired = 1003;
+  static const int test = 1099;
 
   static const List<int> all = <int>[
     tenMinutes,
     fiveMinutes,
     expired,
   ];
+}
+
+/// Android notification channel used for all parking reminders.
+abstract final class ParkingNotificationChannel {
+  static const String id = 'parktimer_parking';
+  static const String name = 'Parkzeiten';
+  static const String description = 'Erinnerungen für aktive Parkzeiten';
+}
+
+/// Shared Android details for every ParkTimer parking notification.
+NotificationDetails parkingNotificationDetails() {
+  return const NotificationDetails(
+    android: AndroidNotificationDetails(
+      ParkingNotificationChannel.id,
+      ParkingNotificationChannel.name,
+      channelDescription: ParkingNotificationChannel.description,
+      importance: Importance.high,
+      priority: Priority.high,
+    ),
+  );
 }
 
 /// A planned parking notification that should be scheduled if still in the future.
@@ -81,40 +102,74 @@ class NotificationService {
 
   bool get isInitialized => _initialized;
 
-  /// Initializes the plugin, timezone data and Android 13+ permissions.
+  AndroidFlutterLocalNotificationsPlugin? get _androidPlugin => _plugin
+      .resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin>();
+
+  /// Initializes the plugin, timezone data, Android channel and permissions.
   Future<void> initialize() async {
     if (_initialized) {
       return;
     }
 
-    await _configureLocalTimeZone();
+    try {
+      await _configureLocalTimeZone();
 
-    const androidSettings =
-        AndroidInitializationSettings('@mipmap/ic_launcher');
-    const settings = InitializationSettings(android: androidSettings);
+      const androidSettings =
+          AndroidInitializationSettings('@mipmap/ic_launcher');
+      const settings = InitializationSettings(android: androidSettings);
 
-    if (_isAndroid) {
-      await _plugin.initialize(settings: settings);
-      await requestPermissions();
+      if (_isAndroid) {
+        await _plugin.initialize(settings: settings);
+        await _ensureParkingNotificationChannel();
+        await requestPermissions();
+      }
+
+      _initialized = true;
+      _debugLog('NotificationService initialized');
+    } catch (error, stackTrace) {
+      _debugLog(
+        'NotificationService.initialize failed: $error\n$stackTrace',
+      );
+      rethrow;
     }
-
-    _initialized = true;
   }
 
-  /// Requests notification permissions where required (Android 13+).
+  /// Requests notification permissions where required.
+  ///
+  /// - Android 13+: [POST_NOTIFICATIONS] only when not already granted
+  /// - Exact alarms only when [canScheduleExactNotifications] is explicitly false
   Future<bool> requestPermissions() async {
     if (!_isAndroid) {
       return false;
     }
 
-    final androidImplementation = _plugin
-        .resolvePlatformSpecificImplementation<
-            AndroidFlutterLocalNotificationsPlugin>();
+    final androidImplementation = _androidPlugin;
+    if (androidImplementation == null) {
+      return false;
+    }
 
-    final granted =
-        await androidImplementation?.requestNotificationsPermission();
-    await androidImplementation?.requestExactAlarmsPermission();
-    return granted ?? false;
+    var notificationsAllowed =
+        await androidImplementation.areNotificationsEnabled() ?? true;
+
+    if (!notificationsAllowed) {
+      final granted =
+          await androidImplementation.requestNotificationsPermission();
+      notificationsAllowed = granted ?? false;
+      _debugLog('POST_NOTIFICATIONS granted=$granted');
+    }
+
+    final canExact =
+        await androidImplementation.canScheduleExactNotifications();
+    if (canExact == false) {
+      final granted =
+          await androidImplementation.requestExactAlarmsPermission();
+      _debugLog('SCHEDULE_EXACT_ALARM granted=$granted');
+    } else {
+      _debugLog('Exact alarms available (canScheduleExactNotifications=$canExact)');
+    }
+
+    return notificationsAllowed;
   }
 
   /// Cancels all previously scheduled parking notifications, then schedules
@@ -134,15 +189,12 @@ class NotificationService {
       endTime: endTime,
       now: _now(),
     );
+    final details = parkingNotificationDetails();
+    final scheduleMode = await _resolveAndroidScheduleMode();
 
-    const details = NotificationDetails(
-      android: AndroidNotificationDetails(
-        'parktimer_parking',
-        'Parkzeiten',
-        channelDescription: 'Erinnerungen für aktive Parkzeiten',
-        importance: Importance.high,
-        priority: Priority.high,
-      ),
+    _debugLog(
+      'Scheduling ${planned.length} parking notification(s) '
+      'with mode=$scheduleMode for endTime=$endTime',
     );
 
     for (final notification in planned) {
@@ -151,14 +203,26 @@ class NotificationService {
         tz.local,
       );
 
-      await _plugin.zonedSchedule(
-        id: notification.id,
-        title: notification.title,
-        body: notification.body,
-        scheduledDate: scheduledDate,
-        notificationDetails: details,
-        androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
-      );
+      try {
+        await _plugin.zonedSchedule(
+          id: notification.id,
+          title: notification.title,
+          body: notification.body,
+          scheduledDate: scheduledDate,
+          notificationDetails: details,
+          androidScheduleMode: scheduleMode,
+        );
+        _debugLog(
+          'Scheduled id=${notification.id} at $scheduledDate '
+          '(${notification.body})',
+        );
+      } catch (error, stackTrace) {
+        _debugLog(
+          'Failed to schedule id=${notification.id} at $scheduledDate: '
+          '$error\n$stackTrace',
+        );
+        rethrow;
+      }
     }
   }
 
@@ -169,28 +233,67 @@ class NotificationService {
     }
   }
 
-  /// Shows an immediate local test notification.
+  /// Shows an immediate local test notification on [ParkingNotificationChannel].
   Future<void> showTestNotification() async {
     if (!_isAndroid) {
       return;
     }
 
-    const androidDetails = AndroidNotificationDetails(
-      'parktimer_general',
-      'ParkTimer',
-      channelDescription: 'Allgemeine ParkTimer-Benachrichtigungen',
-      importance: Importance.defaultImportance,
-      priority: Priority.defaultPriority,
+    if (!_initialized) {
+      await initialize();
+    } else {
+      await _ensureParkingNotificationChannel();
+    }
+
+    try {
+      await _plugin.show(
+        id: ParkingNotificationIds.test,
+        title: 'ParkTimer',
+        body: 'Benachrichtigungen funktionieren.',
+        notificationDetails: parkingNotificationDetails(),
+      );
+      _debugLog('showTestNotification displayed');
+    } catch (error, stackTrace) {
+      _debugLog('showTestNotification failed: $error\n$stackTrace');
+      rethrow;
+    }
+  }
+
+  Future<void> _ensureParkingNotificationChannel() async {
+    final androidImplementation = _androidPlugin;
+    if (androidImplementation == null) {
+      return;
+    }
+
+    const channel = AndroidNotificationChannel(
+      ParkingNotificationChannel.id,
+      ParkingNotificationChannel.name,
+      description: ParkingNotificationChannel.description,
+      importance: Importance.high,
     );
 
-    const details = NotificationDetails(android: androidDetails);
+    await androidImplementation.createNotificationChannel(channel);
+    _debugLog('Ensured notification channel ${ParkingNotificationChannel.id}');
+  }
 
-    await _plugin.show(
-      id: 0,
-      title: 'ParkTimer',
-      body: 'Benachrichtigungen funktionieren.',
-      notificationDetails: details,
-    );
+  /// Prefers exact alarms when permitted; otherwise falls back so reminders
+  /// are still delivered (possibly a few minutes late).
+  Future<AndroidScheduleMode> _resolveAndroidScheduleMode() async {
+    final androidImplementation = _androidPlugin;
+    if (androidImplementation == null) {
+      return AndroidScheduleMode.exactAllowWhileIdle;
+    }
+
+    final canExact =
+        await androidImplementation.canScheduleExactNotifications();
+    if (canExact == false) {
+      _debugLog(
+        'Exact alarms not permitted; using inexactAllowWhileIdle fallback',
+      );
+      return AndroidScheduleMode.inexactAllowWhileIdle;
+    }
+
+    return AndroidScheduleMode.exactAllowWhileIdle;
   }
 
   Future<void> _configureLocalTimeZone() async {
@@ -204,14 +307,24 @@ class NotificationService {
       if (!kIsWeb) {
         final timeZoneInfo = await FlutterTimezone.getLocalTimezone();
         tz.setLocalLocation(tz.getLocation(timeZoneInfo.identifier));
+        _debugLog('Timezone set to ${timeZoneInfo.identifier}');
       } else {
         tz.setLocalLocation(tz.UTC);
       }
-    } catch (_) {
+    } catch (error, stackTrace) {
+      _debugLog(
+        'Timezone lookup failed, falling back to UTC: $error\n$stackTrace',
+      );
       tz.setLocalLocation(tz.UTC);
     }
 
     _timeZoneConfigured = true;
+  }
+
+  void _debugLog(String message) {
+    if (kDebugMode) {
+      debugPrint('[ParkTimer/Notifications] $message');
+    }
   }
 
   bool get _isAndroid =>
